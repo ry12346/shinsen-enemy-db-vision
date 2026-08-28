@@ -41,6 +41,7 @@ const state = {
   draftUploadId: null,
   rawOcrText: "",
   analysisCached: false,
+  analysisHash: "",
   suggestions: { generals: [], tactics: [] },
   usage: null,
   admin: null,
@@ -48,6 +49,288 @@ const state = {
   currentSeason: "未設定",
   systemStatus: null,
 };
+
+const OCR_SHEET_VERSION = "field-sheet-v1";
+const OCR_SHEET_WIDTH = 1800;
+const OCR_SHEET_MARGIN = 24;
+const OCR_SHEET_ROW_HEIGHT = 96;
+const OCR_SHEET_ROW_GAP = 12;
+const OCR_SHEET_LABEL_WIDTH = 220;
+const OCR_FIELD_KEYS = [
+  "RESULT",
+  "GROUP",
+  "PLAYER",
+  "G1_NAME",
+  "G1_LEVEL",
+  "G1_INHERENT",
+  "G1_T1",
+  "G1_T2",
+  "G2_NAME",
+  "G2_LEVEL",
+  "G2_INHERENT",
+  "G2_T1",
+  "G2_T2",
+  "G3_NAME",
+  "G3_LEVEL",
+  "G3_INHERENT",
+  "G3_T1",
+  "G3_T2",
+];
+
+function makeRect(x1, x2, y1, y2) {
+  return { x1, x2, y1, y2 };
+}
+
+function portraitOcrProfile() {
+  return {
+    id: "portrait-fields-v1",
+    result: makeRect(0.39, 0.61, 0.075, 0.135),
+    meta: {
+      left: {
+        group: makeRect(0.035, 0.205, 0.126, 0.161),
+        player: makeRect(0.235, 0.505, 0.126, 0.161),
+      },
+      right: {
+        group: makeRect(0.555, 0.72, 0.126, 0.161),
+        player: makeRect(0.735, 0.992, 0.126, 0.161),
+      },
+    },
+    columns: {
+      left: [
+        [0.05, 0.195],
+        [0.198, 0.342],
+        [0.345, 0.49],
+      ],
+      right: [
+        [0.51, 0.655],
+        [0.657, 0.802],
+        [0.805, 0.95],
+      ],
+    },
+    rows: {
+      name: [0.263, 0.291],
+      level: [0.284, 0.306],
+      inherent: [0.326, 0.35],
+      tactic1: [0.412, 0.438],
+      tactic2: [0.5, 0.526],
+    },
+  };
+}
+
+function landscapePhoneOcrProfile() {
+  return {
+    id: "landscape-phone-fields-v1",
+    result: makeRect(0.43, 0.53, 0.005, 0.115),
+    meta: {
+      left: {
+        group: makeRect(0.14, 0.205, 0.085, 0.145),
+        player: makeRect(0.34, 0.445, 0.085, 0.145),
+      },
+      right: {
+        group: makeRect(0.72, 0.805, 0.085, 0.145),
+        player: makeRect(0.505, 0.615, 0.085, 0.145),
+      },
+    },
+    columns: {
+      left: [
+        [0.145, 0.228],
+        [0.23, 0.315],
+        [0.317, 0.402],
+      ],
+      right: [
+        [0.532, 0.615],
+        [0.617, 0.705],
+        [0.708, 0.795],
+      ],
+    },
+    rows: {
+      name: [0.365, 0.445],
+      level: [0.405, 0.47],
+      inherent: [0.53, 0.59],
+      tactic1: [0.685, 0.74],
+      tactic2: [0.835, 0.9],
+    },
+  };
+}
+
+function landscapeGameOcrProfile() {
+  return {
+    id: "landscape-game-fields-v1",
+    result: makeRect(0.43, 0.53, 0.005, 0.115),
+    meta: {
+      left: {
+        group: makeRect(0.17, 0.222, 0.08, 0.145),
+        player: makeRect(0.38, 0.46, 0.08, 0.145),
+      },
+      right: {
+        group: makeRect(0.755, 0.84, 0.08, 0.145),
+        player: makeRect(0.525, 0.64, 0.08, 0.145),
+      },
+    },
+    columns: {
+      left: [
+        [0.173, 0.255],
+        [0.258, 0.344],
+        [0.347, 0.432],
+      ],
+      right: [
+        [0.557, 0.644],
+        [0.646, 0.733],
+        [0.737, 0.825],
+      ],
+    },
+    rows: {
+      name: [0.37, 0.46],
+      level: [0.415, 0.49],
+      inherent: [0.545, 0.605],
+      tactic1: [0.695, 0.755],
+      // 横画面のゲーム内スクショでは第2戦法がロゴで隠れるため、切り出さない。
+      tactic2: null,
+    },
+  };
+}
+
+function getOcrProfile(file) {
+  if (file.orientation === "portrait") return portraitOcrProfile();
+  if (file.captureType === "game") return landscapeGameOcrProfile();
+  return landscapePhoneOcrProfile();
+}
+
+function buildOcrFieldRows(file) {
+  const profile = getOcrProfile(file);
+  const side = file.enemySide === "left" ? "left" : "right";
+  const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
+  const rows = [
+    { key: "RESULT", rect: profile.result, mode: "light" },
+    { key: "GROUP", rect: profile.meta[side].group, mode: "light" },
+    { key: "PLAYER", rect: profile.meta[side].player, mode: "light" },
+  ];
+
+  for (let slot = 1; slot <= 3; slot += 1) {
+    const visualIndex = visualColumns[slot - 1];
+    const [x1, x2] = profile.columns[side][visualIndex];
+    const add = (suffix, yRange, mode = "light") => {
+      rows.push({
+        key: `G${slot}_${suffix}`,
+        rect: yRange ? makeRect(x1, x2, yRange[0], yRange[1]) : null,
+        mode,
+      });
+    };
+    add("NAME", profile.rows.name, "dark");
+    add("LEVEL", profile.rows.level, "dark");
+    add("INHERENT", profile.rows.inherent, "light");
+    add("T1", profile.rows.tactic1, "light");
+    add("T2", profile.rows.tactic2, "light");
+  }
+
+  return { profile, rows };
+}
+
+function drawCropIntoBox(context, image, rect, box, filter = "none") {
+  if (!rect) {
+    context.save();
+    context.fillStyle = "#f3f4f6";
+    context.fillRect(box.x, box.y, box.w, box.h);
+    context.strokeStyle = "#d1d5db";
+    context.strokeRect(box.x, box.y, box.w, box.h);
+    context.fillStyle = "#6b7280";
+    context.font = "600 26px system-ui, sans-serif";
+    context.textBaseline = "middle";
+    context.fillText("画像外", box.x + 18, box.y + box.h / 2);
+    context.restore();
+    return;
+  }
+
+  const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
+  const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
+  const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
+  const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
+  const sw = Math.max(1, ex - sx);
+  const sh = Math.max(1, ey - sy);
+  const scale = Math.min(box.w / sw, box.h / sh);
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+  const dx = Math.round(box.x + (box.w - dw) / 2);
+  const dy = Math.round(box.y + (box.h - dh) / 2);
+
+  context.save();
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  if ("filter" in context) context.filter = filter;
+  context.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
+  context.restore();
+}
+
+async function buildOcrSheet(file) {
+  const { profile, rows } = buildOcrFieldRows(file);
+  const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`;
+  if (file.ocrPrepared?.cacheKey === cacheKey) return file.ocrPrepared;
+
+  if (file.ocrPrepared?.previewUrl) URL.revokeObjectURL(file.ocrPrepared.previewUrl);
+  const image = await loadImage(file.previewUrl);
+  const height =
+    OCR_SHEET_MARGIN * 2 +
+    OCR_SHEET_ROW_HEIGHT * OCR_FIELD_KEYS.length +
+    OCR_SHEET_ROW_GAP * (OCR_FIELD_KEYS.length - 1);
+  const canvas = document.createElement("canvas");
+  canvas.width = OCR_SHEET_WIDTH;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) throw new AppError("OCR用画像を作成できませんでした。");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.textBaseline = "middle";
+
+  const firstBox = { x: OCR_SHEET_LABEL_WIDTH + 20, w: 730 };
+  const secondBox = { x: OCR_SHEET_LABEL_WIDTH + 790, w: 730 };
+
+  rows.forEach((row, index) => {
+    const y = OCR_SHEET_MARGIN + index * (OCR_SHEET_ROW_HEIGHT + OCR_SHEET_ROW_GAP);
+    context.fillStyle = index % 2 === 0 ? "#ffffff" : "#fafafa";
+    context.fillRect(0, y, canvas.width, OCR_SHEET_ROW_HEIGHT);
+    context.fillStyle = "#111827";
+    context.font = "700 28px system-ui, sans-serif";
+    context.fillText(row.key, 16, y + OCR_SHEET_ROW_HEIGHT / 2);
+
+    const boxY = y + 6;
+    const boxH = OCR_SHEET_ROW_HEIGHT - 12;
+    drawCropIntoBox(
+      context,
+      image,
+      row.rect,
+      { x: firstBox.x, y: boxY, w: firstBox.w, h: boxH },
+      "none",
+    );
+    const enhancedFilter = row.mode === "dark"
+      ? "grayscale(100%) contrast(205%) brightness(122%)"
+      : "grayscale(100%) contrast(190%) brightness(112%)";
+    drawCropIntoBox(
+      context,
+      image,
+      row.rect,
+      { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
+      enhancedFilter,
+    );
+  });
+
+  const blob = await canvasToBlob(canvas, "image/jpeg", 0.93);
+  const analysisHash = await sha256Text(
+    `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`,
+  );
+  const prepared = {
+    cacheKey,
+    profile: profile.id,
+    blob,
+    mimeType: "image/jpeg",
+    width: canvas.width,
+    height: canvas.height,
+    hash: analysisHash,
+    previewUrl: URL.createObjectURL(blob),
+  };
+  file.ocrPrepared = prepared;
+  return prepared;
+}
+
 
 class AppError extends Error {
   constructor(message, code = "APP_ERROR", details = null) {
@@ -863,22 +1146,26 @@ function blankDraft(file = null) {
 async function analyzeCurrent() {
   const file = activeUpload();
   if (!file) return;
-  showLoading("OCRで戦報を読み取り中...");
+  showLoading("敵側の文字を拡大してOCR中...");
   try {
+    const ocrInput = await buildOcrSheet(file);
     const response = await apiRequest("analyze_report", {
-      imageBase64: await blobToBase64(file.blob),
-      imageHash: file.hash,
-      mimeType: file.mimeType,
-      width: file.width,
-      height: file.height,
+      imageBase64: await blobToBase64(ocrInput.blob),
+      imageHash: ocrInput.hash,
+      mimeType: ocrInput.mimeType,
+      width: ocrInput.width,
+      height: ocrInput.height,
       enemySide: file.enemySide,
       captureType: file.captureType,
+      ocrProfile: ocrInput.profile,
+      sourceOrientation: file.orientation,
     });
     state.draft = response.draft ?? blankDraft(file);
     state.draftUploadId = file.id;
     state.draft.observedAt = new Date().toISOString();
     state.rawOcrText = response.rawText ?? "";
     state.analysisCached = Boolean(response.cached);
+    state.analysisHash = response.imageHash ?? ocrInput.hash;
     state.usage = response.usage ?? state.usage;
     await loadSuggestions();
     renderReview();
@@ -889,6 +1176,7 @@ async function analyzeCurrent() {
       state.draftUploadId = file.id;
       state.rawOcrText = "";
       state.analysisCached = false;
+      state.analysisHash = "";
       await loadSuggestions();
       renderReview();
     }
@@ -903,6 +1191,7 @@ async function startManualEntry() {
   state.draftUploadId = file?.id ?? null;
   state.rawOcrText = "";
   state.analysisCached = false;
+  state.analysisHash = "";
   await loadSuggestions();
   renderReview();
 }
@@ -951,7 +1240,7 @@ function renderReview() {
             : ""
         }
         <div class="notice ${draft.completenessScore >= 75 ? "success" : "warning"}">
-          OCRの自動入力は下書きです。特にプレイヤー名、第2戦法、横画面の下部を確認してください。
+          敵側の各文字欄を切り出して拡大したOCR結果です。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
           <div class="badge-row" style="margin-top:8px"><span class="badge info">シーズン：${escapeHtml(draft.seasonName || state.currentSeason || "未設定")}</span></div>
         </div>
 
@@ -1026,7 +1315,10 @@ function renderReview() {
 
         ${
           state.rawOcrText
-            ? `<details><summary>OCRの生テキストを確認</summary><div class="details-body"><pre class="raw-ocr">${escapeHtml(state.rawOcrText)}</pre></div></details>`
+            ? `<details><summary>OCRの診断情報</summary><div class="details-body">
+                ${file?.ocrPrepared?.previewUrl ? `<button type="button" class="secondary-button" style="width:100%;margin-bottom:12px" data-action="open-ocr-image">OCR用に切り出した画像を確認</button>` : ""}
+                <pre class="raw-ocr">${escapeHtml(state.rawOcrText)}</pre>
+              </div></details>`
             : ""
         }
 
@@ -1059,7 +1351,7 @@ function computeCompleteness(draft) {
     if (general.tactic1) present += 1;
     if (general.tactic2) present += 1;
   }
-  const score = Math.round((present / 14) * 100);
+  const score = Math.round((present / 17) * 100);
   return { score, completeness: draft.completeness === "manual" ? "manual" : score >= 79 ? "complete" : "partial" };
 }
 
@@ -1087,7 +1379,7 @@ async function saveObservation() {
     observedAt: draft.observedAt ?? new Date().toISOString(),
     seasonName: draft.seasonName ?? state.currentSeason ?? "未設定",
     imageHash,
-    ocrCacheHash: state.rawOcrText && file ? file.hash : "",
+    ocrCacheHash: state.rawOcrText && file ? state.analysisHash : "",
     sourceLayout: draft.sourceLayout ?? (file ? `${file.orientation}-${file.captureType}` : "manual"),
     captureType: draft.captureType ?? file?.captureType ?? "unknown",
     enemySide: draft.enemySide ?? file?.enemySide ?? "right",
@@ -1116,12 +1408,14 @@ async function saveObservation() {
 
     if (file) {
       URL.revokeObjectURL(file.previewUrl);
+      if (file.ocrPrepared?.previewUrl) URL.revokeObjectURL(file.ocrPrepared.previewUrl);
       state.uploadQueue = state.uploadQueue.filter((item) => item.id !== file.id);
       state.activeUploadId = state.uploadQueue[0]?.id ?? null;
     }
     state.draft = null;
     state.draftUploadId = null;
     state.rawOcrText = "";
+    state.analysisHash = "";
 
     if (state.uploadQueue.length) {
       renderUpload();
@@ -1497,31 +1791,44 @@ document.addEventListener("click", async (event) => {
 
   if (action === "remove-upload") {
     const item = state.uploadQueue.find((entry) => entry.id === button.dataset.uploadId);
-    if (item) URL.revokeObjectURL(item.previewUrl);
+    if (item) {
+      URL.revokeObjectURL(item.previewUrl);
+      if (item.ocrPrepared?.previewUrl) URL.revokeObjectURL(item.ocrPrepared.previewUrl);
+    }
     state.uploadQueue = state.uploadQueue.filter((entry) => entry.id !== button.dataset.uploadId);
     if (state.activeUploadId === button.dataset.uploadId) state.activeUploadId = state.uploadQueue[0]?.id ?? null;
     if (state.draftUploadId === button.dataset.uploadId) {
       state.draft = null;
       state.draftUploadId = null;
       state.rawOcrText = "";
+      state.analysisHash = "";
     }
     renderUpload();
   }
 
   if (action === "set-enemy-side") {
     const item = activeUpload();
-    if (item) item.enemySide = button.dataset.side;
+    if (item) {
+      item.enemySide = button.dataset.side;
+      if (item.ocrPrepared?.previewUrl) URL.revokeObjectURL(item.ocrPrepared.previewUrl);
+      item.ocrPrepared = null;
+    }
     renderUpload();
   }
 
   if (action === "set-capture-type") {
     const item = activeUpload();
-    if (item) item.captureType = button.dataset.capture;
+    if (item) {
+      item.captureType = button.dataset.capture;
+      if (item.ocrPrepared?.previewUrl) URL.revokeObjectURL(item.ocrPrepared.previewUrl);
+      item.ocrPrepared = null;
+    }
     renderUpload();
   }
 
   if (action === "open-current-image") openImage(activeUpload()?.previewUrl);
   if (action === "open-review-image") openImage(reviewUpload()?.previewUrl);
+  if (action === "open-ocr-image") openImage(reviewUpload()?.ocrPrepared?.previewUrl);
   if (action === "resume-review") {
     if (state.draftUploadId && reviewUpload()) state.activeUploadId = state.draftUploadId;
     renderReview();
@@ -1531,6 +1838,7 @@ document.addEventListener("click", async (event) => {
       state.draft = null;
       state.draftUploadId = null;
       state.rawOcrText = "";
+      state.analysisHash = "";
       renderUpload();
     }
   }
