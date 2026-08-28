@@ -50,7 +50,7 @@ const state = {
   systemStatus: null,
 };
 
-const OCR_SHEET_VERSION = "field-sheet-v1";
+const OCR_SHEET_VERSION = "field-sheet-v2";
 const OCR_SHEET_WIDTH = 1800;
 const OCR_SHEET_MARGIN = 24;
 const OCR_SHEET_ROW_HEIGHT = 96;
@@ -81,17 +81,19 @@ function makeRect(x1, x2, y1, y2) {
   return { x1, x2, y1, y2 };
 }
 
-function portraitOcrProfile() {
+function portraitPhoneOcrProfile() {
   return {
-    id: "portrait-fields-v1",
-    result: makeRect(0.39, 0.61, 0.075, 0.135),
+    id: "portrait-phone-fields-v2",
+    // 紋章全体ではなく中央の勝敗文字だけを切り出し、OCR用画像で拡大する。
+    result: makeRect(0.425, 0.575, 0.083, 0.122),
     meta: {
       left: {
-        group: makeRect(0.035, 0.205, 0.126, 0.161),
+        // 一門アイコンを避け、文字部分から切り出す。
+        group: makeRect(0.082, 0.205, 0.126, 0.161),
         player: makeRect(0.235, 0.505, 0.126, 0.161),
       },
       right: {
-        group: makeRect(0.555, 0.72, 0.126, 0.161),
+        group: makeRect(0.62, 0.72, 0.126, 0.161),
         player: makeRect(0.735, 0.992, 0.126, 0.161),
       },
     },
@@ -110,24 +112,43 @@ function portraitOcrProfile() {
     rows: {
       name: [0.263, 0.291],
       level: [0.284, 0.306],
+      red: [0.285, 0.305],
       inherent: [0.326, 0.35],
       tactic1: [0.412, 0.438],
       tactic2: [0.5, 0.526],
+    },
+    jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
+  };
+}
+
+function portraitGameOcrProfile() {
+  const profile = portraitPhoneOcrProfile();
+  return {
+    ...profile,
+    id: "portrait-game-fields-v2",
+    // ゲーム内保存画像はロゴ帯の分だけ部隊欄が下へ寄る。
+    rows: {
+      name: [0.283, 0.311],
+      level: [0.304, 0.326],
+      red: [0.305, 0.325],
+      inherent: [0.346, 0.37],
+      tactic1: [0.432, 0.458],
+      tactic2: [0.52, 0.546],
     },
   };
 }
 
 function landscapePhoneOcrProfile() {
   return {
-    id: "landscape-phone-fields-v1",
-    result: makeRect(0.43, 0.53, 0.005, 0.115),
+    id: "landscape-phone-fields-v2",
+    result: makeRect(0.43, 0.53, 0.025, 0.095),
     meta: {
       left: {
-        group: makeRect(0.14, 0.205, 0.085, 0.145),
+        group: makeRect(0.155, 0.205, 0.085, 0.145),
         player: makeRect(0.34, 0.445, 0.085, 0.145),
       },
       right: {
-        group: makeRect(0.72, 0.805, 0.085, 0.145),
+        group: makeRect(0.72, 0.78, 0.085, 0.145),
         player: makeRect(0.505, 0.615, 0.085, 0.145),
       },
     },
@@ -146,24 +167,26 @@ function landscapePhoneOcrProfile() {
     rows: {
       name: [0.365, 0.445],
       level: [0.405, 0.47],
+      red: [0.42, 0.455],
       inherent: [0.53, 0.59],
       tactic1: [0.685, 0.74],
       tactic2: [0.835, 0.9],
     },
+    jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
   };
 }
 
 function landscapeGameOcrProfile() {
   return {
-    id: "landscape-game-fields-v1",
-    result: makeRect(0.43, 0.53, 0.005, 0.115),
+    id: "landscape-game-fields-v2",
+    result: makeRect(0.43, 0.53, 0.025, 0.095),
     meta: {
       left: {
-        group: makeRect(0.17, 0.222, 0.08, 0.145),
+        group: makeRect(0.185, 0.222, 0.08, 0.145),
         player: makeRect(0.38, 0.46, 0.08, 0.145),
       },
       right: {
-        group: makeRect(0.755, 0.84, 0.08, 0.145),
+        group: makeRect(0.755, 0.81, 0.08, 0.145),
         player: makeRect(0.525, 0.64, 0.08, 0.145),
       },
     },
@@ -182,16 +205,22 @@ function landscapeGameOcrProfile() {
     rows: {
       name: [0.37, 0.46],
       level: [0.415, 0.49],
+      red: [0.425, 0.465],
       inherent: [0.545, 0.605],
       tactic1: [0.695, 0.755],
       // 横画面のゲーム内スクショでは第2戦法がロゴで隠れるため、切り出さない。
       tactic2: null,
     },
+    jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
   };
 }
 
 function getOcrProfile(file) {
-  if (file.orientation === "portrait") return portraitOcrProfile();
+  if (file.orientation === "portrait") {
+    return file.captureType === "game"
+      ? portraitGameOcrProfile()
+      : portraitPhoneOcrProfile();
+  }
   if (file.captureType === "game") return landscapeGameOcrProfile();
   return landscapePhoneOcrProfile();
 }
@@ -201,7 +230,7 @@ function buildOcrFieldRows(file) {
   const side = file.enemySide === "left" ? "left" : "right";
   const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
   const rows = [
-    { key: "RESULT", rect: profile.result, mode: "light" },
+    { key: "RESULT", rect: profile.result, mode: "result" },
     { key: "GROUP", rect: profile.meta[side].group, mode: "light" },
     { key: "PLAYER", rect: profile.meta[side].player, mode: "light" },
   ];
@@ -261,6 +290,210 @@ function drawCropIntoBox(context, image, rect, box, filter = "none") {
   context.restore();
 }
 
+
+function rgbToHueSaturationValue(red, green, blue) {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let hue = 0;
+  if (delta > 0) {
+    if (max === r) hue = 60 * (((g - b) / delta) % 6);
+    else if (max === g) hue = 60 * ((b - r) / delta + 2);
+    else hue = 60 * ((r - g) / delta + 4);
+  }
+  if (hue < 0) hue += 360;
+  return {
+    hue,
+    saturation: max === 0 ? 0 : delta / max,
+    value: max,
+  };
+}
+
+function drawResultMaskIntoBox(context, image, rect, box) {
+  if (!rect) {
+    drawCropIntoBox(context, image, rect, box, "none");
+    return;
+  }
+  const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
+  const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
+  const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
+  const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
+  const sw = Math.max(1, ex - sx);
+  const sh = Math.max(1, ey - sy);
+  const targetWidth = Math.min(box.w, Math.max(260, Math.round(box.h * 4.5)));
+  const targetHeight = box.h;
+  const temp = document.createElement("canvas");
+  temp.width = targetWidth;
+  temp.height = targetHeight;
+  const tempContext = temp.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!tempContext) {
+    drawCropIntoBox(context, image, rect, box, "grayscale(100%) contrast(230%) brightness(120%)");
+    return;
+  }
+  tempContext.fillStyle = "#ffffff";
+  tempContext.fillRect(0, 0, targetWidth, targetHeight);
+  tempContext.imageSmoothingEnabled = true;
+  tempContext.imageSmoothingQuality = "high";
+  tempContext.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+
+  const imageData = tempContext.getImageData(0, 0, targetWidth, targetHeight);
+  const source = imageData.data;
+  const mask = new Uint8Array(targetWidth * targetHeight);
+  for (let index = 0; index < mask.length; index += 1) {
+    const offset = index * 4;
+    const hsv = rgbToHueSaturationValue(source[offset], source[offset + 1], source[offset + 2]);
+    // 勝敗文字の赤～橙色だけを抽出し、背後の金色の盾を除く。
+    if (
+      hsv.saturation >= 0.28 &&
+      hsv.value >= 0.30 &&
+      (hsv.hue <= 32 || hsv.hue >= 345)
+    ) {
+      mask[index] = 1;
+    }
+  }
+
+  const inkCount = mask.reduce((sum, value) => sum + value, 0);
+  if (inkCount < mask.length * 0.005) {
+    drawCropIntoBox(
+      context,
+      image,
+      rect,
+      box,
+      "grayscale(100%) contrast(235%) brightness(118%)",
+    );
+    return;
+  }
+
+  // 細い筆画を1pxだけ太らせる。
+  const dilated = new Uint8Array(mask.length);
+  for (let y = 0; y < targetHeight; y += 1) {
+    for (let x = 0; x < targetWidth; x += 1) {
+      let ink = 0;
+      for (let dy = -1; dy <= 1 && !ink; dy += 1) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= targetHeight) continue;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          if (nx >= 0 && nx < targetWidth && mask[ny * targetWidth + nx]) {
+            ink = 1;
+            break;
+          }
+        }
+      }
+      dilated[y * targetWidth + x] = ink;
+    }
+  }
+
+  for (let index = 0; index < dilated.length; index += 1) {
+    const value = dilated[index] ? 0 : 255;
+    const offset = index * 4;
+    source[offset] = value;
+    source[offset + 1] = value;
+    source[offset + 2] = value;
+    source[offset + 3] = 255;
+  }
+  tempContext.putImageData(imageData, 0, 0);
+  const dx = Math.round(box.x + (box.w - targetWidth) / 2);
+  context.drawImage(temp, dx, box.y, targetWidth, targetHeight);
+}
+
+function detectRedLevelFromCard(image, cardRect, redRange, jewel) {
+  const sx = clamp(Math.round(cardRect[0] * image.naturalWidth), 0, image.naturalWidth - 1);
+  const ex = clamp(Math.round(cardRect[1] * image.naturalWidth), sx + 1, image.naturalWidth);
+  const sy = clamp(Math.round(redRange[0] * image.naturalHeight), 0, image.naturalHeight - 1);
+  const ey = clamp(Math.round(redRange[1] * image.naturalHeight), sy + 1, image.naturalHeight);
+  const width = Math.max(1, ex - sx);
+  const height = Math.max(1, ey - sy);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!context) return { level: null, confidence: 0, jewels: [] };
+  context.drawImage(image, sx, sy, width, height, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const jewels = [];
+
+  for (let slot = 0; slot < 5; slot += 1) {
+    const center = (jewel.start + slot * jewel.step) * width;
+    const startX = clamp(Math.floor(center - jewel.halfWidth * width), 0, width - 1);
+    const endX = clamp(Math.ceil(center + jewel.halfWidth * width), startX + 1, width);
+    let redPixels = 0;
+    let goldPixels = 0;
+    let totalPixels = 0;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = startX; x < endX; x += 1) {
+        const offset = (y * width + x) * 4;
+        const r = pixels[offset];
+        const g = pixels[offset + 1];
+        const b = pixels[offset + 2];
+        totalPixels += 1;
+
+        const isRed =
+          r > 110 &&
+          g < r * 0.62 &&
+          b < r * 0.72 &&
+          r - g > 35;
+        const isGold =
+          !isRed &&
+          r > 120 &&
+          g > 65 &&
+          g < r * 0.93 &&
+          b < g * 0.75 &&
+          r - b > 70;
+        if (isRed) redPixels += 1;
+        else if (isGold) goldPixels += 1;
+      }
+    }
+
+    const redRatio = totalPixels ? redPixels / totalPixels : 0;
+    const goldRatio = totalPixels ? goldPixels / totalPixels : 0;
+    let kind = "unknown";
+    if (Math.max(redRatio, goldRatio) >= 0.045) {
+      // 金色の珠にも赤い縁が含まれるため、赤と金の比率を比較して判定する。
+      if (redRatio > 0.07 && (goldRatio < 0.08 || redRatio >= goldRatio * 0.8)) {
+        kind = "red";
+      } else if (goldRatio >= 0.05) {
+        kind = "gold";
+      } else if (redRatio > goldRatio) {
+        kind = "red";
+      }
+    }
+    jewels.push({ kind, redRatio, goldRatio, strength: Math.max(redRatio, goldRatio) });
+  }
+
+  if (jewels.some((item) => item.kind === "unknown")) {
+    return { level: null, confidence: 0, jewels };
+  }
+  const averageStrength = jewels.reduce((sum, item) => sum + item.strength, 0) / jewels.length;
+  return {
+    level: jewels.filter((item) => item.kind === "red").length,
+    confidence: clamp(0.72 + Math.min(0.24, averageStrength), 0, 0.96),
+    jewels,
+  };
+}
+
+function detectRedLevels(image, file, profile) {
+  const side = file.enemySide === "left" ? "left" : "right";
+  const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
+  const analyses = visualColumns.map((visualIndex) =>
+    detectRedLevelFromCard(
+      image,
+      profile.columns[side][visualIndex],
+      profile.rows.red,
+      profile.jewel,
+    )
+  );
+  return {
+    levels: analyses.map((analysis) => analysis.level),
+    confidence: analyses.map((analysis) => analysis.confidence),
+    source: "color-jewel-v2",
+  };
+}
+
 async function buildOcrSheet(file) {
   const { profile, rows } = buildOcrFieldRows(file);
   const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`;
@@ -301,18 +534,28 @@ async function buildOcrSheet(file) {
       { x: firstBox.x, y: boxY, w: firstBox.w, h: boxH },
       "none",
     );
-    const enhancedFilter = row.mode === "dark"
-      ? "grayscale(100%) contrast(205%) brightness(122%)"
-      : "grayscale(100%) contrast(190%) brightness(112%)";
-    drawCropIntoBox(
-      context,
-      image,
-      row.rect,
-      { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
-      enhancedFilter,
-    );
+    if (row.mode === "result") {
+      drawResultMaskIntoBox(
+        context,
+        image,
+        row.rect,
+        { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
+      );
+    } else {
+      const enhancedFilter = row.mode === "dark"
+        ? "grayscale(100%) contrast(205%) brightness(122%)"
+        : "grayscale(100%) contrast(190%) brightness(112%)";
+      drawCropIntoBox(
+        context,
+        image,
+        row.rect,
+        { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
+        enhancedFilter,
+      );
+    }
   });
 
+  const redLevelAnalysis = detectRedLevels(image, file, profile);
   const blob = await canvasToBlob(canvas, "image/jpeg", 0.93);
   const analysisHash = await sha256Text(
     `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`,
@@ -326,6 +569,9 @@ async function buildOcrSheet(file) {
     height: canvas.height,
     hash: analysisHash,
     previewUrl: URL.createObjectURL(blob),
+    redLevels: redLevelAnalysis.levels,
+    redLevelConfidence: redLevelAnalysis.confidence,
+    redLevelSource: redLevelAnalysis.source,
   };
   file.ocrPrepared = prepared;
   return prepared;
@@ -1045,12 +1291,216 @@ async function blobToBase64(blob) {
   return String(dataUrl).split(",", 2)[1] ?? "";
 }
 
+
+function parseImageDateText(value, offsetText = "") {
+  const match = String(value ?? "").trim().match(
+    /^(\d{4})[:\-](\d{2})[:\-](\d{2})[ T](\d{2}):(\d{2}):(\d{2})/,
+  );
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (
+    year < 2000 ||
+    month < 1 || month > 12 ||
+    day < 1 || day > 31 ||
+    hour > 23 || minute > 59 || second > 59
+  ) return null;
+
+  const normalizedOffset = /^[+\-]\d{2}:?\d{2}$/.test(offsetText)
+    ? offsetText.includes(":")
+      ? offsetText
+      : `${offsetText.slice(0, 3)}:${offsetText.slice(3)}`
+    : "";
+  const date = normalizedOffset
+    ? new Date(`${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}:${secondText}${normalizedOffset}`)
+    : new Date(year, month - 1, day, hour, minute, second);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function parseExifTiff(buffer, tiffOffset = 0) {
+  try {
+    const view = new DataView(buffer);
+    if (tiffOffset + 8 > view.byteLength) return null;
+    const byteOrder = String.fromCharCode(
+      view.getUint8(tiffOffset),
+      view.getUint8(tiffOffset + 1),
+    );
+    const littleEndian = byteOrder === "II";
+    if (!littleEndian && byteOrder !== "MM") return null;
+    const u16 = (offset) => view.getUint16(offset, littleEndian);
+    const u32 = (offset) => view.getUint32(offset, littleEndian);
+    if (u16(tiffOffset + 2) !== 42) return null;
+
+    const readAscii = (entryOffset, count) => {
+      if (!count || count > 512) return "";
+      const valueOffset = count <= 4
+        ? entryOffset + 8
+        : tiffOffset + u32(entryOffset + 8);
+      if (valueOffset < 0 || valueOffset + count > view.byteLength) return "";
+      let result = "";
+      for (let index = 0; index < count; index += 1) {
+        const code = view.getUint8(valueOffset + index);
+        if (!code) break;
+        result += String.fromCharCode(code);
+      }
+      return result.trim();
+    };
+
+    const readIfd = (relativeOffset) => {
+      const offset = tiffOffset + relativeOffset;
+      if (offset < 0 || offset + 2 > view.byteLength) return new Map();
+      const count = u16(offset);
+      if (count > 512 || offset + 2 + count * 12 > view.byteLength) return new Map();
+      const tags = new Map();
+      for (let index = 0; index < count; index += 1) {
+        const entryOffset = offset + 2 + index * 12;
+        const tag = u16(entryOffset);
+        const type = u16(entryOffset + 2);
+        const valueCount = u32(entryOffset + 4);
+        if (type === 2) tags.set(tag, readAscii(entryOffset, valueCount));
+        else if (type === 4 && valueCount === 1) tags.set(tag, u32(entryOffset + 8));
+        else if (type === 3 && valueCount === 1) tags.set(tag, u16(entryOffset + 8));
+      }
+      return tags;
+    };
+
+    const ifd0Offset = u32(tiffOffset + 4);
+    const ifd0 = readIfd(ifd0Offset);
+    const exifPointer = Number(ifd0.get(0x8769));
+    const exif = Number.isFinite(exifPointer) && exifPointer > 0
+      ? readIfd(exifPointer)
+      : new Map();
+    const dateText =
+      exif.get(0x9003) ||
+      exif.get(0x9004) ||
+      ifd0.get(0x0132) ||
+      "";
+    const offsetText =
+      exif.get(0x9011) ||
+      exif.get(0x9012) ||
+      exif.get(0x9010) ||
+      "";
+    return parseImageDateText(dateText, offsetText);
+  } catch {
+    return null;
+  }
+}
+
+async function readEmbeddedCaptureTime(file) {
+  const maxBytes = Math.min(file.size, 2_000_000);
+  if (maxBytes < 16) return null;
+  const buffer = await file.slice(0, maxBytes).arrayBuffer();
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  if (file.type === "image/jpeg" && view.getUint16(0, false) === 0xffd8) {
+    let offset = 2;
+    while (offset + 4 <= view.byteLength) {
+      if (view.getUint8(offset) !== 0xff) break;
+      while (offset < view.byteLength && view.getUint8(offset) === 0xff) offset += 1;
+      const marker = view.getUint8(offset);
+      offset += 1;
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (offset + 2 > view.byteLength) break;
+      const length = view.getUint16(offset, false);
+      if (length < 2 || offset + length > view.byteLength) break;
+      const dataStart = offset + 2;
+      if (
+        marker === 0xe1 &&
+        length >= 8 &&
+        String.fromCharCode(...bytes.slice(dataStart, dataStart + 6)) === "Exif\u0000\u0000"
+      ) {
+        return parseExifTiff(buffer, dataStart + 6);
+      }
+      offset += length;
+    }
+  }
+
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (
+    file.type === "image/png" &&
+    pngSignature.every((value, index) => bytes[index] === value)
+  ) {
+    let offset = 8;
+    while (offset + 12 <= view.byteLength) {
+      const length = view.getUint32(offset, false);
+      const type = String.fromCharCode(...bytes.slice(offset + 4, offset + 8));
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + length;
+      if (dataEnd + 4 > view.byteLength) break;
+      if (type === "eXIf") return parseExifTiff(buffer, dataStart);
+      if (type === "tEXt") {
+        const text = new TextDecoder("latin1").decode(bytes.slice(dataStart, dataEnd));
+        const separator = text.indexOf("\u0000");
+        const key = separator >= 0 ? text.slice(0, separator).toLowerCase() : "";
+        const value = separator >= 0 ? text.slice(separator + 1) : "";
+        if (key.includes("creation") || key.includes("date")) {
+          const parsed = new Date(value);
+          if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
+        }
+      }
+      offset = dataEnd + 4;
+    }
+  }
+
+  if (
+    file.type === "image/webp" &&
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  ) {
+    let offset = 12;
+    while (offset + 8 <= view.byteLength) {
+      const type = String.fromCharCode(...bytes.slice(offset, offset + 4));
+      const length = view.getUint32(offset + 4, true);
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + length;
+      if (dataEnd > view.byteLength) break;
+      if (type === "EXIF") {
+        const hasPrefix = String.fromCharCode(...bytes.slice(dataStart, dataStart + 6)) === "Exif\u0000\u0000";
+        return parseExifTiff(buffer, dataStart + (hasPrefix ? 6 : 0));
+      }
+      offset = dataEnd + (length % 2);
+    }
+  }
+  return null;
+}
+
+async function detectCaptureTime(file) {
+  try {
+    const embedded = await readEmbeddedCaptureTime(file);
+    if (embedded) return { iso: embedded, source: "metadata" };
+  } catch {
+    // メタデータが壊れていても画像選択自体は継続する。
+  }
+  const modified = Number(file.lastModified);
+  const lowerBound = new Date("2000-01-01T00:00:00Z").getTime();
+  const upperBound = Date.now() + 24 * 60 * 60 * 1000;
+  if (Number.isFinite(modified) && modified >= lowerBound && modified <= upperBound) {
+    return { iso: new Date(modified).toISOString(), source: "file-last-modified" };
+  }
+  return { iso: new Date().toISOString(), source: "current-time" };
+}
+
+function captureTimeSourceLabel(source) {
+  return {
+    metadata: "画像内の撮影日時を使用",
+    "file-last-modified": "画像ファイルの日時を使用（共有方法によっては保存日時）",
+    "current-time": "撮影日時を取得できなかったため現在時刻",
+  }[source] ?? "日時は登録前に確認してください";
+}
+
 async function prepareImage(file) {
   const allowed = ["image/jpeg", "image/png", "image/webp"];
   if (!allowed.includes(file.type)) {
     throw new AppError(`${file.name}はJPEG・PNG・WebPではありません。`);
   }
 
+  const captureTime = await detectCaptureTime(file);
   const originalUrl = URL.createObjectURL(file);
   let image;
   try {
@@ -1113,6 +1563,8 @@ async function prepareImage(file) {
     orientation: targetWidth >= targetHeight ? "landscape" : "portrait",
     enemySide: "right",
     captureType: "phone",
+    capturedAt: captureTime.iso,
+    capturedAtSource: captureTime.source,
   };
 }
 
@@ -1125,7 +1577,8 @@ function blankDraft(file = null) {
     battleResult: "unknown",
     completeness: "manual",
     completenessScore: 0,
-    observedAt: new Date().toISOString(),
+    observedAt: file?.capturedAt ?? new Date().toISOString(),
+    observedAtSource: file?.capturedAtSource ?? "current-time",
     seasonName: state.currentSeason || "未設定",
     generals: [1, 2, 3].map((slot) => ({
       slot,
@@ -1159,10 +1612,30 @@ async function analyzeCurrent() {
       captureType: file.captureType,
       ocrProfile: ocrInput.profile,
       sourceOrientation: file.orientation,
+      redLevels: ocrInput.redLevels,
+      redLevelConfidence: ocrInput.redLevelConfidence,
+      observedAtHint: file.capturedAt,
+      observedAtSource: file.capturedAtSource,
     });
     state.draft = response.draft ?? blankDraft(file);
     state.draftUploadId = file.id;
-    state.draft.observedAt = new Date().toISOString();
+    state.draft.observedAt = file.capturedAt ?? state.draft.observedAt ?? new Date().toISOString();
+    state.draft.observedAtSource = file.capturedAtSource ?? state.draft.observedAtSource ?? "current-time";
+    (ocrInput.redLevels ?? []).forEach((value, index) => {
+      if (value == null) return;
+      const general = (state.draft.generals ?? []).find((item) => Number(item.slot) === index + 1);
+      if (!general) return;
+      general.redLevel = value;
+      general.confidence = {
+        ...(general.confidence ?? {}),
+        redLevel: Number(ocrInput.redLevelConfidence?.[index] ?? 0),
+      };
+    });
+    state.draft.summary = {
+      ...(state.draft.summary ?? {}),
+      observedAtSource: state.draft.observedAtSource,
+      redLevelSource: ocrInput.redLevelSource,
+    };
     state.rawOcrText = response.rawText ?? "";
     state.analysisCached = Boolean(response.cached);
     state.analysisHash = response.imageHash ?? ocrInput.hash;
@@ -1240,7 +1713,7 @@ function renderReview() {
             : ""
         }
         <div class="notice ${draft.completenessScore >= 75 ? "success" : "warning"}">
-          敵側の各文字欄を切り出して拡大したOCR結果です。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
+          敵側の各文字欄を切り出して拡大したOCR結果です。勝敗と一門名の装飾記号を補正し、スマホ標準スクリーンショットでは赤度も色から判定します。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
           <div class="badge-row" style="margin-top:8px"><span class="badge info">シーズン：${escapeHtml(draft.seasonName || state.currentSeason || "未設定")}</span></div>
         </div>
 
@@ -1258,6 +1731,7 @@ function renderReview() {
             <label class="field">
               <span>確認日時</span>
               <input type="datetime-local" data-draft-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
+              <small>${escapeHtml(captureTimeSourceLabel(draft.observedAtSource ?? file?.capturedAtSource))}</small>
             </label>
             <label class="field">
               <span>戦報の表示結果</span>
@@ -1293,7 +1767,7 @@ function renderReview() {
                     <input type="number" inputmode="numeric" min="1" max="100" data-draft-path="generals.${actualIndex}.level" value="${escapeAttr(general.level ?? "")}" placeholder="例 50" />
                   </label>
                   <label class="field">
-                    <span>赤度</span>
+                    <span>赤度<span class="confidence-dot ${confidenceClass(general.confidence?.redLevel)}"></span></span>
                     <input type="number" inputmode="numeric" min="0" max="10" data-draft-path="generals.${actualIndex}.redLevel" value="${escapeAttr(general.redLevel ?? "")}" placeholder="0～5" />
                   </label>
                 </div>
