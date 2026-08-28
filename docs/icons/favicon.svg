@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="16" fill="#17202d"/>
+  <path d="M32 8 51 16v15c0 12-8 21-19 25C21 52 13 43 13 31V16Z" fill="#d8b35f"/>
+  <path d="M32 14 45 20v11c0 8-5 15-13 19-8-4-13-11-13-19V20Z" fill="#1e2938"/>
+  <text x="32" y="38" text-anchor="middle" font-family="Arial,sans-serif" font-size="17" font-weight="700" fill="#f0cf7d">DB</text>
+</svg>
