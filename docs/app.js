@@ -2187,12 +2187,6 @@ function openImage(url) {
   else imageDialog.setAttribute("open", "");
 }
 
-function showIssuedCode(code) {
-  state.issuedCode = code;
-  issuedCodeOutput.textContent = code;
-  if (typeof codeDialog.showModal === "function") codeDialog.showModal();
-  else codeDialog.setAttribute("open", "");
-}
 
 async function refreshAdmin() {
   state.admin = await apiRequest("admin_list");
@@ -2537,9 +2531,6 @@ imageDialog.addEventListener("click", (event) => {
   if (event.target === imageDialog) imageDialog.close();
 });
 
-codeDialog.addEventListener("click", (event) => {
-  if (event.target === codeDialog) codeDialog.close();
-});
 
 window.addEventListener("beforeunload", () => {
   state.uploadQueue.forEach((item) => URL.revokeObjectURL(item.previewUrl));
