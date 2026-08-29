@@ -1,9 +1,9 @@
-const CACHE_NAME = "shinsen-enemy-db-v24-mobile-ocr-v166";
+const CACHE_NAME = "shinsen-enemy-db-v25-frontend-v167";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js",
+  "./styles.css?v=1.6.7",
+  "./app.js?v=1.6.7",
   "./config.js",
   "./manifest.webmanifest",
   "./robots.txt",
@@ -39,7 +39,7 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin === self.location.origin && (isCoreFile || isNavigation)) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: "no-store" })
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();

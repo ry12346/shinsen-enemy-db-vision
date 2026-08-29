@@ -1259,3 +1259,10 @@ dialog::backdrop {
 .review-shell .review-page-content select {
   scroll-margin-bottom: 30vh;
 }
+
+
+/* v1.6.7: OCR確認・登録後編集では下部ナビを絶対に表示しない。
+   showNav=false が主制御だが、旧DOMが一瞬残る場合もCSS側で防ぐ。 */
+.review-shell .bottom-nav {
+  display: none !important;
+}

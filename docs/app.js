@@ -1,3 +1,4 @@
+const APP_VERSION = "1.6.7";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -2185,6 +2186,8 @@ function renderSettingsBody() {
       <span>Safari下部の共有ボタン →「ホーム画面に追加」を選ぶと、アプリのように全画面で使えます。</span>
     </div>
 
+    <div class="notice info" style="font-size:.8rem">アプリバージョン：${escapeHtml(APP_VERSION)}</div>
+
     <div class="card">
       <div class="card-header"><div><h2>武将・戦法マスタ</h2><small>OCRの誤読補正辞書</small></div></div>
       <p class="muted">OCRで読み取った名称を、登録済みの正しい武将名・戦法名へ近似照合します。閲覧は全員、修正は管理者のみ可能です。</p>
@@ -2561,7 +2564,14 @@ window.addEventListener("beforeunload", () => {
 });
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`, { updateViaCache: "none" });
+      await registration.update();
+    } catch {
+      // Service Workerの更新失敗だけでアプリ本体は停止させない。
+    }
+  });
 }
 
 initialize();
