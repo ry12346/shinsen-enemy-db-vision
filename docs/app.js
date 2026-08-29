@@ -34,6 +34,8 @@ const state = {
   view: "enemies",
   enemies: [],
   currentEnemy: null,
+  editingObservationId: null,
+  editDraft: null,
   enemySearch: "",
   uploadQueue: [],
   activeUploadId: null,
@@ -43,6 +45,9 @@ const state = {
   analysisCached: false,
   analysisHash: "",
   suggestions: { generals: [], tactics: [] },
+  masters: { generals: [], tactics: [] },
+  masterType: "general",
+  masterSearch: "",
   usage: null,
   admin: null,
   issuedCode: "",
@@ -620,6 +625,16 @@ function resultLabel(result) {
   }[result] ?? "不明";
 }
 
+function limitBreakOptions(value) {
+  const current = value == null || value === "" ? "" : String(value);
+  return [
+    `<option value="" ${current === "" ? "selected" : ""}>未確認</option>`,
+    ...[0, 1, 2, 3, 4, 5].map((item) =>
+      `<option value="${item}" ${current === String(item) ? "selected" : ""}>${item}凸</option>`
+    ),
+  ].join("");
+}
+
 function resultBadgeClass(result) {
   return {
     win: "success",
@@ -954,6 +969,7 @@ async function navigate(view) {
   else if (view === "upload") renderUpload();
   else if (view === "usage") await renderUsage();
   else if (view === "settings") await renderSettings();
+  else if (view === "masters") await renderMasters();
 }
 
 function latestGenerals(latest) {
@@ -1062,6 +1078,188 @@ async function openEnemy(enemyId) {
   }
 }
 
+function canEditObservation(observation) {
+  if (!observation || !state.member) return false;
+  if (state.member.role === "admin") return true;
+  return state.member.role === "editor" && observation.created_by === state.member.id;
+}
+
+function draftFromObservation(observation, enemy) {
+  const rows = [...(observation.observation_generals ?? [])].sort((a, b) => Number(a.slot) - Number(b.slot));
+  return {
+    enemy: {
+      name: enemy?.name ?? "",
+      groupName: enemy?.groupName ?? "",
+      memo: enemy?.memo ?? "",
+    },
+    observedAt: observation.observed_at ?? new Date().toISOString(),
+    seasonName: observation.season_name ?? state.currentSeason ?? "未設定",
+    battleResult: observation.battle_result ?? "unknown",
+    completeness: observation.completeness ?? "partial",
+    sourceLayout: observation.source_layout ?? "unknown",
+    captureType: observation.capture_type ?? "unknown",
+    enemySide: observation.enemy_side === "left" ? "left" : "right",
+    summary: observation.report_summary && typeof observation.report_summary === "object" ? observation.report_summary : {},
+    generals: [1, 2, 3].map((slot) => {
+      const row = rows.find((item) => Number(item.slot) === slot) ?? {};
+      return {
+        slot,
+        roleLabel: slot === 1 ? "大将" : "副将",
+        name: row.general_name ?? "",
+        level: row.general_level ?? null,
+        redLevel: row.red_level ?? null,
+        inherentTactic: row.inherent_tactic ?? "",
+        tactic1: row.tactic_1 ?? "",
+        tactic2: row.tactic_2 ?? "",
+        confidence: {},
+      };
+    }),
+  };
+}
+
+async function startEditObservation(observationId) {
+  const observation = state.currentEnemy?.observations?.find((item) => item.id === observationId);
+  if (!observation) {
+    showToast("編集する観測記録が見つかりません。", "error");
+    return;
+  }
+  if (!canEditObservation(observation)) {
+    showToast("この観測記録を編集する権限がありません。", "error");
+    return;
+  }
+  state.editingObservationId = observation.id;
+  state.editDraft = draftFromObservation(observation, state.currentEnemy);
+  await loadSuggestions();
+  renderObservationEdit();
+}
+
+function renderObservationEdit() {
+  const draft = state.editDraft;
+  if (!draft || !state.editingObservationId) {
+    if (state.currentEnemy) renderEnemyDetail();
+    return;
+  }
+  const generals = draft.generals ?? [];
+  const generalValues = [...new Set(state.suggestions.generals)].slice(0, 1000);
+  const tacticValues = [...new Set(state.suggestions.tactics)].slice(0, 1500);
+  app.innerHTML = pageHtml({
+    title: "観測記録を編集",
+    subtitle: `${draft.seasonName || "未設定"}・登録後の修正`,
+    activeNav: "enemies",
+    backAction: "cancel-edit-observation",
+    content: `
+      <section class="page-content">
+        <datalist id="edit-general-suggestions">${generalValues.map((value) => `<option value="${escapeAttr(value)}"></option>`).join("")}</datalist>
+        <datalist id="edit-tactic-suggestions">${tacticValues.map((value) => `<option value="${escapeAttr(value)}"></option>`).join("")}</datalist>
+        <div class="notice info">登録済みデータを修正します。元の戦報画像は保存していないため、必要に応じて手元の画像と照合してください。シーズンは元の登録値を維持します。</div>
+
+        <div class="card form-stack">
+          <div class="card-header"><div><h2>敵プレイヤー</h2><small>必須</small></div></div>
+          <label class="field">
+            <span>プレイヤー名</span>
+            <input data-edit-path="enemy.name" value="${escapeAttr(draft.enemy?.name ?? "")}" maxlength="80" required placeholder="敵プレイヤー名" />
+          </label>
+          <label class="field">
+            <span>所属一門・陣営</span>
+            <input data-edit-path="enemy.groupName" value="${escapeAttr(draft.enemy?.groupName ?? "")}" maxlength="80" placeholder="分かる場合のみ" />
+          </label>
+          <div class="form-grid-2">
+            <label class="field">
+              <span>確認日時</span>
+              <input type="datetime-local" data-edit-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
+            </label>
+            <label class="field">
+              <span>戦報の表示結果</span>
+              <select data-edit-path="battleResult">
+                ${["unknown", "win", "loss", "draw"].map((value) => `<option value="${value}" ${draft.battleResult === value ? "selected" : ""}>${resultLabel(value)}</option>`).join("")}
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>備考</span>
+            <textarea data-edit-path="enemy.memo" maxlength="500" placeholder="主力、要注意、対策など">${escapeHtml(draft.enemy?.memo ?? "")}</textarea>
+          </label>
+        </div>
+
+        ${[1, 2, 3].map((slot) => {
+          const general = generals.find((item) => Number(item.slot) === slot) ?? {};
+          const index = generals.findIndex((item) => Number(item.slot) === slot);
+          const actualIndex = index >= 0 ? index : slot - 1;
+          return `
+            <section class="general-card">
+              <div class="general-card-header"><h3>${slot === 1 ? "大将" : `副将${slot - 1}`}</h3><span class="badge">${slot}/3</span></div>
+              <label class="field">
+                <span>武将名</span>
+                <input list="edit-general-suggestions" data-edit-path="generals.${actualIndex}.name" value="${escapeAttr(general.name ?? "")}" maxlength="40" placeholder="武将名" />
+              </label>
+              <div class="form-grid-2">
+                <label class="field"><span>Lv</span><input type="number" inputmode="numeric" min="1" max="100" data-edit-path="generals.${actualIndex}.level" value="${escapeAttr(general.level ?? "")}" placeholder="例 50" /></label>
+                <label class="field"><span>凸数</span><select data-edit-path="generals.${actualIndex}.redLevel">${limitBreakOptions(general.redLevel)}</select></label>
+              </div>
+              <label class="field"><span>固有戦法</span><input list="edit-tactic-suggestions" data-edit-path="generals.${actualIndex}.inherentTactic" value="${escapeAttr(general.inherentTactic ?? "")}" maxlength="50" placeholder="固有戦法" /></label>
+              <label class="field"><span>第1戦法</span><input list="edit-tactic-suggestions" data-edit-path="generals.${actualIndex}.tactic1" value="${escapeAttr(general.tactic1 ?? "")}" maxlength="50" placeholder="第1戦法" /></label>
+              <label class="field"><span>第2戦法</span><input list="edit-tactic-suggestions" data-edit-path="generals.${actualIndex}.tactic2" value="${escapeAttr(general.tactic2 ?? "")}" maxlength="50" placeholder="第2戦法" /></label>
+            </section>`;
+        }).join("")}
+
+        <div class="review-sticky-bar">
+          <button type="button" class="secondary-button" data-action="cancel-edit-observation">キャンセル</button>
+          <button type="button" class="primary-button" data-action="save-edited-observation">変更を保存</button>
+        </div>
+      </section>`,
+  });
+}
+
+async function saveEditedObservation() {
+  const draft = state.editDraft;
+  const observationId = state.editingObservationId;
+  if (!draft || !observationId) return;
+  if (!draft.enemy?.name?.trim()) {
+    showToast("敵プレイヤー名を入力してください。", "error");
+    document.querySelector('[data-edit-path="enemy.name"]')?.focus();
+    return;
+  }
+
+  const completion = computeCompleteness(draft);
+  const payload = {
+    enemy: {
+      name: draft.enemy.name.trim(),
+      groupName: draft.enemy.groupName?.trim() ?? "",
+      memo: draft.enemy.memo?.trim() ?? "",
+    },
+    observedAt: draft.observedAt ?? new Date().toISOString(),
+    battleResult: draft.battleResult ?? "unknown",
+    completeness: completion.completeness,
+    summary: { ...(draft.summary ?? {}), completenessScore: completion.score },
+    generals: (draft.generals ?? []).map((general, index) => ({
+      slot: index + 1,
+      roleLabel: index === 0 ? "大将" : "副将",
+      name: general.name?.trim() ?? "",
+      level: general.level === "" || general.level == null ? null : Number(general.level),
+      redLevel: general.redLevel === "" || general.redLevel == null ? null : Number(general.redLevel),
+      inherentTactic: general.inherentTactic?.trim() ?? "",
+      tactic1: general.tactic1?.trim() ?? "",
+      tactic2: general.tactic2?.trim() ?? "",
+      confidence: general.confidence ?? {},
+    })),
+  };
+
+  showLoading("変更を保存中...");
+  try {
+    const response = await apiRequest("update_observation", { observationId, payload });
+    const enemyId = response.result?.enemyId ?? state.currentEnemy?.id;
+    state.editingObservationId = null;
+    state.editDraft = null;
+    showToast("観測記録を更新しました。", "success");
+    if (enemyId) await openEnemy(enemyId);
+    else await navigate("enemies");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    hideLoading();
+  }
+}
+
 function observationCard(observation) {
   const generals = [...(observation.observation_generals ?? [])].sort((a, b) => a.slot - b.slot);
   return `
@@ -1085,7 +1283,7 @@ function observationCard(observation) {
               <div class="general-summary-row">
                 <span class="role-label">${slot === 1 ? "大将" : `副将${slot - 1}`}</span>
                 <div>
-                  <strong>${escapeHtml(general.general_name || "未確認")}${general.general_level ? ` Lv${general.general_level}` : ""}${Number.isInteger(general.red_level) ? ` 赤${general.red_level}` : ""}</strong>
+                  <strong>${escapeHtml(general.general_name || "未確認")}${general.general_level ? ` Lv${general.general_level}` : ""}${Number.isInteger(general.red_level) ? ` ${general.red_level}凸` : ""}</strong>
                   <div class="tactic-lines">
                     <span>固有：${escapeHtml(general.inherent_tactic || "不明")}</span>
                     <span>第1：${escapeHtml(general.tactic_1 || "不明")}</span>
@@ -1095,11 +1293,10 @@ function observationCard(observation) {
               </div>`;
           })
           .join("")}
-        ${
-          state.member?.role === "admin"
-            ? `<button type="button" class="danger-button" data-action="delete-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を削除</button>`
-            : ""
-        }
+        <div class="admin-actions" style="margin-top:14px">
+          ${canEditObservation(observation) ? `<button type="button" class="secondary-button" style="min-height:44px" data-action="edit-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を編集</button>` : ""}
+          ${state.member?.role === "admin" ? `<button type="button" class="danger-button" style="min-height:44px" data-action="delete-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を削除</button>` : ""}
+        </div>
       </div>
     </article>`;
 }
@@ -1713,7 +1910,7 @@ function renderReview() {
             : ""
         }
         <div class="notice ${draft.completenessScore >= 75 ? "success" : "warning"}">
-          敵側の各文字欄を切り出して拡大したOCR結果です。勝敗と一門名の装飾記号を補正し、スマホ標準スクリーンショットでは赤度も色から判定します。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
+          敵側の各文字欄を切り出して拡大したOCR結果です。勝敗と一門名の装飾記号を補正し、スマホ標準スクリーンショットでは凸数も珠の色から判定します。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
           <div class="badge-row" style="margin-top:8px"><span class="badge info">シーズン：${escapeHtml(draft.seasonName || state.currentSeason || "未設定")}</span></div>
         </div>
 
@@ -1767,8 +1964,8 @@ function renderReview() {
                     <input type="number" inputmode="numeric" min="1" max="100" data-draft-path="generals.${actualIndex}.level" value="${escapeAttr(general.level ?? "")}" placeholder="例 50" />
                   </label>
                   <label class="field">
-                    <span>赤度<span class="confidence-dot ${confidenceClass(general.confidence?.redLevel)}"></span></span>
-                    <input type="number" inputmode="numeric" min="0" max="10" data-draft-path="generals.${actualIndex}.redLevel" value="${escapeAttr(general.redLevel ?? "")}" placeholder="0～5" />
+                    <span>凸数<span class="confidence-dot ${confidenceClass(general.confidence?.redLevel)}"></span></span>
+                    <select data-draft-path="generals.${actualIndex}.redLevel">${limitBreakOptions(general.redLevel)}</select>
                   </label>
                 </div>
                 <label class="field">
@@ -1964,6 +2161,88 @@ function renderUsageBody() {
     </div>`;
 }
 
+function masterTypeLabel(type) {
+  return type === "tactic" ? "戦法" : "武将";
+}
+
+async function loadMasters() {
+  const response = await apiRequest("master_list");
+  state.masters = response.masters ?? { generals: [], tactics: [] };
+}
+
+async function renderMasters() {
+  app.innerHTML = pageHtml({
+    title: "OCR補正マスタ",
+    subtitle: "武将名・戦法名の補正に使用",
+    activeNav: "settings",
+    backAction: "back-to-settings",
+    content: `<section class="page-content"><div class="card"><p class="muted" style="margin:0">読み込み中...</p></div></section>`,
+  });
+  try {
+    await loadMasters();
+    renderMastersBody();
+  } catch (error) {
+    const content = document.querySelector(".page-content");
+    if (content) content.innerHTML = `<div class="notice danger">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderMastersBody() {
+  const content = document.querySelector(".page-content");
+  if (!content) return;
+  const type = state.masterType === "tactic" ? "tactic" : "general";
+  const source = type === "general" ? state.masters.generals ?? [] : state.masters.tactics ?? [];
+  const query = state.masterSearch.trim().toLocaleLowerCase("ja");
+  const items = source.filter((item) => !query || String(item.name ?? "").toLocaleLowerCase("ja").includes(query));
+  const isAdmin = state.member?.role === "admin";
+
+  content.innerHTML = `
+    <div class="notice info">
+      ここに登録された名称をOCRの補正辞書として使用します。誤った名称がある場合は管理者が修正または無効化してください。登録済みの戦報データ自体は、敵詳細の「この観測記録を編集」から修正します。
+    </div>
+    <div class="form-grid-2">
+      <button type="button" class="${type === "general" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="general">武将マスタ (${state.masters.generals?.length ?? 0})</button>
+      <button type="button" class="${type === "tactic" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="tactic">戦法マスタ (${state.masters.tactics?.length ?? 0})</button>
+    </div>
+    <div class="search-box" style="margin-top:12px">
+      <input id="master-search" type="search" inputmode="search" value="${escapeAttr(state.masterSearch)}" placeholder="${masterTypeLabel(type)}名で検索" aria-label="マスタを検索" />
+    </div>
+    ${isAdmin ? `
+      <div class="card form-stack">
+        <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタへ追加</h2><small>OCR補正に使用</small></div></div>
+        <form class="form-stack" data-form="add-master-entry">
+          <label class="field"><span>${masterTypeLabel(type)}名</span><input name="name" maxlength="${type === "general" ? 40 : 50}" required placeholder="正しい名称" /></label>
+          <button type="submit" class="primary-button">マスタへ追加</button>
+        </form>
+      </div>` : ""}
+    <div class="card">
+      <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタ</h2><small>${items.length}件表示</small></div></div>
+      ${items.length ? `<div class="admin-member-list">
+        ${items.map((item) => isAdmin ? `
+          <div class="admin-member-card">
+            <div class="admin-member-top">
+              <div><strong>${escapeHtml(item.name)}</strong><div class="badge-row" style="margin-top:6px"><span class="badge ${item.active ? "success" : "danger"}">${item.active ? "OCR補正に使用" : "無効"}</span></div></div>
+            </div>
+            <div class="admin-role-row">
+              <input data-master-name-id="${escapeAttr(item.id)}" value="${escapeAttr(item.name)}" maxlength="${type === "general" ? 40 : 50}" aria-label="${escapeAttr(item.name)}の名称" />
+              <button type="button" class="compact-button" data-action="save-master-entry" data-master-id="${escapeAttr(item.id)}" data-master-type="${type}" data-master-active="${item.active ? "true" : "false"}">保存</button>
+            </div>
+            <div class="admin-actions">
+              <button type="button" class="secondary-button" style="min-height:40px" data-action="toggle-master-entry" data-master-id="${escapeAttr(item.id)}" data-master-type="${type}" data-master-name="${escapeAttr(item.name)}" data-master-active="${item.active ? "false" : "true"}">${item.active ? "OCR補正から除外" : "OCR補正に戻す"}</button>
+              <button type="button" class="danger-button" style="min-height:40px" data-action="delete-master-entry" data-master-id="${escapeAttr(item.id)}" data-master-type="${type}" data-master-name="${escapeAttr(item.name)}">削除</button>
+            </div>
+          </div>` : `
+          <div class="admin-member-card"><div class="admin-member-top"><strong>${escapeHtml(item.name)}</strong><span class="badge success">使用中</span></div></div>`).join("")}
+      </div>` : `<div class="empty-state"><div class="empty-icon">⌕</div><strong>該当する${masterTypeLabel(type)}がありません</strong><span>${query ? "検索条件を変更してください。" : "管理者が正しい名称を追加してください。"}</span></div>`}
+    </div>`;
+}
+
+async function refreshMasters() {
+  await loadMasters();
+  state.suggestions = { generals: [], tactics: [] };
+  renderMastersBody();
+}
+
 async function renderSettings() {
   app.innerHTML = pageHtml({
     title: "設定",
@@ -2027,6 +2306,12 @@ function renderSettingsBody() {
         <p class="muted">Safariの履歴・Webサイトデータを削除した場合や別端末で使う場合は、管理者による新しいアクセスコードの発行が必要です。</p>
       </div>
     </details>
+
+    <div class="card">
+      <div class="card-header"><div><h2>武将・戦法マスタ</h2><small>OCRの誤読補正辞書</small></div></div>
+      <p class="muted">OCRで読み取った名称を、登録済みの正しい武将名・戦法名へ近似照合します。閲覧は全員、修正は管理者のみ可能です。</p>
+      <button type="button" class="secondary-button" style="width:100%" data-action="navigate" data-view="masters">マスタを確認</button>
+    </div>
 
     ${
       member?.role === "admin" && adminData
@@ -2128,6 +2413,25 @@ document.addEventListener("input", (event) => {
     return;
   }
 
+  if (target.id === "master-search") {
+    state.masterSearch = target.value;
+    renderMastersBody();
+    document.getElementById("master-search")?.focus({ preventScroll: true });
+    return;
+  }
+
+  const editPath = target.dataset?.editPath;
+  if (editPath && state.editDraft) {
+    if (editPath === "observedAtLocal") {
+      state.editDraft.observedAt = fromDatetimeLocal(target.value);
+      return;
+    }
+    let value = target.value;
+    if (target.type === "number") value = value === "" ? null : Number(value);
+    setByPath(state.editDraft, editPath, value);
+    return;
+  }
+
   const path = target.dataset?.draftPath;
   if (path && state.draft) {
     if (path === "observedAtLocal") {
@@ -2196,6 +2500,24 @@ document.addEventListener("submit", async (event) => {
     }
   }
 
+  if (form.dataset.form === "add-master-entry") {
+    showLoading("マスタへ追加中...");
+    try {
+      await apiRequest("admin_master_save", {
+        masterType: state.masterType,
+        name: formData.get("name"),
+        active: true,
+      });
+      showToast(`${masterTypeLabel(state.masterType)}マスタへ追加しました。`, "success");
+      form.reset();
+      await refreshMasters();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+  }
+
   if (form.dataset.form === "create-member") {
     showLoading("メンバーを追加中...");
     try {
@@ -2254,9 +2576,67 @@ document.addEventListener("click", async (event) => {
     }
   }
   if (action === "navigate") await navigate(button.dataset.view);
+  if (action === "back-to-settings") await navigate("settings");
+  if (action === "switch-master-type") {
+    state.masterType = button.dataset.masterType === "tactic" ? "tactic" : "general";
+    state.masterSearch = "";
+    renderMastersBody();
+  }
+  if (action === "save-master-entry") {
+    const input = document.querySelector(`[data-master-name-id="${button.dataset.masterId}"]`);
+    const name = input?.value?.trim() ?? "";
+    if (!name) { showToast("名称を入力してください。", "error"); return; }
+    showLoading("マスタを更新中...");
+    try {
+      await apiRequest("admin_master_save", {
+        id: button.dataset.masterId,
+        masterType: button.dataset.masterType,
+        name,
+        active: button.dataset.masterActive === "true",
+      });
+      showToast("マスタを更新しました。", "success");
+      await refreshMasters();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally { hideLoading(); }
+  }
+  if (action === "toggle-master-entry") {
+    const active = button.dataset.masterActive === "true";
+    showLoading("マスタを更新中...");
+    try {
+      await apiRequest("admin_master_save", {
+        id: button.dataset.masterId,
+        masterType: button.dataset.masterType,
+        name: button.dataset.masterName,
+        active,
+      });
+      showToast(active ? "OCR補正に戻しました。" : "OCR補正から除外しました。", "success");
+      await refreshMasters();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally { hideLoading(); }
+  }
+  if (action === "delete-master-entry") {
+    if (!window.confirm(`「${button.dataset.masterName}」をマスタから削除しますか？登録済み戦報データは削除されません。`)) return;
+    showLoading("マスタから削除中...");
+    try {
+      await apiRequest("admin_master_delete", { id: button.dataset.masterId, masterType: button.dataset.masterType });
+      showToast("マスタから削除しました。", "success");
+      await refreshMasters();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally { hideLoading(); }
+  }
   if (action === "open-enemy") await openEnemy(button.dataset.enemyId);
   if (action === "back-to-enemies") await navigate("enemies");
   if (action === "back-to-upload") renderUpload();
+  if (action === "edit-observation") await startEditObservation(button.dataset.observationId);
+  if (action === "cancel-edit-observation") {
+    state.editingObservationId = null;
+    state.editDraft = null;
+    renderEnemyDetail();
+  }
+  if (action === "save-edited-observation") await saveEditedObservation();
 
   if (action === "select-upload") {
     state.activeUploadId = button.dataset.uploadId;
