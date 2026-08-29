@@ -55,14 +55,13 @@ const state = {
   systemStatus: null,
 };
 
-const OCR_SHEET_VERSION = "field-sheet-v2";
+const OCR_SHEET_VERSION = "field-sheet-v3";
 const OCR_SHEET_WIDTH = 1800;
 const OCR_SHEET_MARGIN = 24;
 const OCR_SHEET_ROW_HEIGHT = 96;
 const OCR_SHEET_ROW_GAP = 12;
 const OCR_SHEET_LABEL_WIDTH = 220;
 const OCR_FIELD_KEYS = [
-  "RESULT",
   "GROUP",
   "PLAYER",
   "G1_NAME",
@@ -88,17 +87,15 @@ function makeRect(x1, x2, y1, y2) {
 
 function portraitPhoneOcrProfile() {
   return {
-    id: "portrait-phone-fields-v2",
-    // 紋章全体ではなく中央の勝敗文字だけを切り出し、OCR用画像で拡大する。
-    result: makeRect(0.425, 0.575, 0.083, 0.122),
+    id: "portrait-phone-fields-v3",
     meta: {
       left: {
-        // 一門アイコンを避け、文字部分から切り出す。
-        group: makeRect(0.082, 0.205, 0.126, 0.161),
+        // 長い一門名も途中で切れないよう、プレイヤー名の直前まで広く切り出す。
+        group: makeRect(0.025, 0.228, 0.126, 0.161),
         player: makeRect(0.235, 0.505, 0.126, 0.161),
       },
       right: {
-        group: makeRect(0.62, 0.72, 0.126, 0.161),
+        group: makeRect(0.515, 0.732, 0.126, 0.161),
         player: makeRect(0.735, 0.992, 0.126, 0.161),
       },
     },
@@ -130,7 +127,7 @@ function portraitGameOcrProfile() {
   const profile = portraitPhoneOcrProfile();
   return {
     ...profile,
-    id: "portrait-game-fields-v2",
+    id: "portrait-game-fields-v3",
     // ゲーム内保存画像はロゴ帯の分だけ部隊欄が下へ寄る。
     rows: {
       name: [0.283, 0.311],
@@ -145,15 +142,14 @@ function portraitGameOcrProfile() {
 
 function landscapePhoneOcrProfile() {
   return {
-    id: "landscape-phone-fields-v2",
-    result: makeRect(0.43, 0.53, 0.025, 0.095),
+    id: "landscape-phone-fields-v3",
     meta: {
       left: {
-        group: makeRect(0.155, 0.205, 0.085, 0.145),
+        group: makeRect(0.10, 0.325, 0.085, 0.145),
         player: makeRect(0.34, 0.445, 0.085, 0.145),
       },
       right: {
-        group: makeRect(0.72, 0.78, 0.085, 0.145),
+        group: makeRect(0.625, 0.875, 0.085, 0.145),
         player: makeRect(0.505, 0.615, 0.085, 0.145),
       },
     },
@@ -183,15 +179,14 @@ function landscapePhoneOcrProfile() {
 
 function landscapeGameOcrProfile() {
   return {
-    id: "landscape-game-fields-v2",
-    result: makeRect(0.43, 0.53, 0.025, 0.095),
+    id: "landscape-game-fields-v3",
     meta: {
       left: {
-        group: makeRect(0.185, 0.222, 0.08, 0.145),
+        group: makeRect(0.10, 0.33, 0.08, 0.145),
         player: makeRect(0.38, 0.46, 0.08, 0.145),
       },
       right: {
-        group: makeRect(0.755, 0.81, 0.08, 0.145),
+        group: makeRect(0.65, 0.88, 0.08, 0.145),
         player: makeRect(0.525, 0.64, 0.08, 0.145),
       },
     },
@@ -235,7 +230,6 @@ function buildOcrFieldRows(file) {
   const side = file.enemySide === "left" ? "left" : "right";
   const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
   const rows = [
-    { key: "RESULT", rect: profile.result, mode: "result" },
     { key: "GROUP", rect: profile.meta[side].group, mode: "light" },
     { key: "PLAYER", rect: profile.meta[side].player, mode: "light" },
   ];
@@ -295,115 +289,6 @@ function drawCropIntoBox(context, image, rect, box, filter = "none") {
   context.restore();
 }
 
-
-function rgbToHueSaturationValue(red, green, blue) {
-  const r = red / 255;
-  const g = green / 255;
-  const b = blue / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-  let hue = 0;
-  if (delta > 0) {
-    if (max === r) hue = 60 * (((g - b) / delta) % 6);
-    else if (max === g) hue = 60 * ((b - r) / delta + 2);
-    else hue = 60 * ((r - g) / delta + 4);
-  }
-  if (hue < 0) hue += 360;
-  return {
-    hue,
-    saturation: max === 0 ? 0 : delta / max,
-    value: max,
-  };
-}
-
-function drawResultMaskIntoBox(context, image, rect, box) {
-  if (!rect) {
-    drawCropIntoBox(context, image, rect, box, "none");
-    return;
-  }
-  const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
-  const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
-  const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
-  const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
-  const sw = Math.max(1, ex - sx);
-  const sh = Math.max(1, ey - sy);
-  const targetWidth = Math.min(box.w, Math.max(260, Math.round(box.h * 4.5)));
-  const targetHeight = box.h;
-  const temp = document.createElement("canvas");
-  temp.width = targetWidth;
-  temp.height = targetHeight;
-  const tempContext = temp.getContext("2d", { alpha: false, willReadFrequently: true });
-  if (!tempContext) {
-    drawCropIntoBox(context, image, rect, box, "grayscale(100%) contrast(230%) brightness(120%)");
-    return;
-  }
-  tempContext.fillStyle = "#ffffff";
-  tempContext.fillRect(0, 0, targetWidth, targetHeight);
-  tempContext.imageSmoothingEnabled = true;
-  tempContext.imageSmoothingQuality = "high";
-  tempContext.drawImage(image, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
-
-  const imageData = tempContext.getImageData(0, 0, targetWidth, targetHeight);
-  const source = imageData.data;
-  const mask = new Uint8Array(targetWidth * targetHeight);
-  for (let index = 0; index < mask.length; index += 1) {
-    const offset = index * 4;
-    const hsv = rgbToHueSaturationValue(source[offset], source[offset + 1], source[offset + 2]);
-    // 勝敗文字の赤～橙色だけを抽出し、背後の金色の盾を除く。
-    if (
-      hsv.saturation >= 0.28 &&
-      hsv.value >= 0.30 &&
-      (hsv.hue <= 32 || hsv.hue >= 345)
-    ) {
-      mask[index] = 1;
-    }
-  }
-
-  const inkCount = mask.reduce((sum, value) => sum + value, 0);
-  if (inkCount < mask.length * 0.005) {
-    drawCropIntoBox(
-      context,
-      image,
-      rect,
-      box,
-      "grayscale(100%) contrast(235%) brightness(118%)",
-    );
-    return;
-  }
-
-  // 細い筆画を1pxだけ太らせる。
-  const dilated = new Uint8Array(mask.length);
-  for (let y = 0; y < targetHeight; y += 1) {
-    for (let x = 0; x < targetWidth; x += 1) {
-      let ink = 0;
-      for (let dy = -1; dy <= 1 && !ink; dy += 1) {
-        const ny = y + dy;
-        if (ny < 0 || ny >= targetHeight) continue;
-        for (let dx = -1; dx <= 1; dx += 1) {
-          const nx = x + dx;
-          if (nx >= 0 && nx < targetWidth && mask[ny * targetWidth + nx]) {
-            ink = 1;
-            break;
-          }
-        }
-      }
-      dilated[y * targetWidth + x] = ink;
-    }
-  }
-
-  for (let index = 0; index < dilated.length; index += 1) {
-    const value = dilated[index] ? 0 : 255;
-    const offset = index * 4;
-    source[offset] = value;
-    source[offset + 1] = value;
-    source[offset + 2] = value;
-    source[offset + 3] = 255;
-  }
-  tempContext.putImageData(imageData, 0, 0);
-  const dx = Math.round(box.x + (box.w - targetWidth) / 2);
-  context.drawImage(temp, dx, box.y, targetWidth, targetHeight);
-}
 
 function detectRedLevelFromCard(image, cardRect, redRange, jewel) {
   const sx = clamp(Math.round(cardRect[0] * image.naturalWidth), 0, image.naturalWidth - 1);
@@ -539,25 +424,16 @@ async function buildOcrSheet(file) {
       { x: firstBox.x, y: boxY, w: firstBox.w, h: boxH },
       "none",
     );
-    if (row.mode === "result") {
-      drawResultMaskIntoBox(
-        context,
-        image,
-        row.rect,
-        { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
-      );
-    } else {
-      const enhancedFilter = row.mode === "dark"
-        ? "grayscale(100%) contrast(205%) brightness(122%)"
-        : "grayscale(100%) contrast(190%) brightness(112%)";
-      drawCropIntoBox(
-        context,
-        image,
-        row.rect,
-        { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
-        enhancedFilter,
-      );
-    }
+    const enhancedFilter = row.mode === "dark"
+      ? "grayscale(100%) contrast(205%) brightness(122%)"
+      : "grayscale(100%) contrast(190%) brightness(112%)";
+    drawCropIntoBox(
+      context,
+      image,
+      row.rect,
+      { x: secondBox.x, y: boxY, w: secondBox.w, h: boxH },
+      enhancedFilter,
+    );
   });
 
   const redLevelAnalysis = detectRedLevels(image, file, profile);
@@ -616,14 +492,6 @@ function roleLabel(role) {
   }[role] ?? role;
 }
 
-function resultLabel(result) {
-  return {
-    win: "勝利",
-    loss: "敗北",
-    draw: "引分",
-    unknown: "不明",
-  }[result] ?? "不明";
-}
 
 function limitBreakOptions(value) {
   const current = value == null || value === "" ? "" : String(value);
@@ -635,14 +503,6 @@ function limitBreakOptions(value) {
   ].join("");
 }
 
-function resultBadgeClass(result) {
-  return {
-    win: "success",
-    loss: "danger",
-    draw: "warning",
-    unknown: "",
-  }[result] ?? "";
-}
 
 function completenessLabel(value) {
   return {
@@ -1046,7 +906,6 @@ function renderEnemyListBody(errorMessage = "") {
                 latest
                   ? `<div class="badge-row" style="margin-top:9px">
                       <span class="badge ${completenessBadgeClass(latest.completeness)}">${completenessLabel(latest.completeness)}</span>
-                      <span class="badge ${resultBadgeClass(latest.battle_result)}">${resultLabel(latest.battle_result)}</span>
                     </div>
                     <div class="lineup-summary">
                       ${[1, 2, 3]
@@ -1094,7 +953,6 @@ function draftFromObservation(observation, enemy) {
     },
     observedAt: observation.observed_at ?? new Date().toISOString(),
     seasonName: observation.season_name ?? state.currentSeason ?? "未設定",
-    battleResult: observation.battle_result ?? "unknown",
     completeness: observation.completeness ?? "partial",
     sourceLayout: observation.source_layout ?? "unknown",
     captureType: observation.capture_type ?? "unknown",
@@ -1163,18 +1021,10 @@ function renderObservationEdit() {
             <span>所属一門・陣営</span>
             <input data-edit-path="enemy.groupName" value="${escapeAttr(draft.enemy?.groupName ?? "")}" maxlength="80" placeholder="分かる場合のみ" />
           </label>
-          <div class="form-grid-2">
-            <label class="field">
-              <span>確認日時</span>
-              <input type="datetime-local" data-edit-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
-            </label>
-            <label class="field">
-              <span>戦報の表示結果</span>
-              <select data-edit-path="battleResult">
-                ${["unknown", "win", "loss", "draw"].map((value) => `<option value="${value}" ${draft.battleResult === value ? "selected" : ""}>${resultLabel(value)}</option>`).join("")}
-              </select>
-            </label>
-          </div>
+          <label class="field">
+            <span>確認日時</span>
+            <input type="datetime-local" data-edit-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
+          </label>
           <label class="field">
             <span>備考</span>
             <textarea data-edit-path="enemy.memo" maxlength="500" placeholder="主力、要注意、対策など">${escapeHtml(draft.enemy?.memo ?? "")}</textarea>
@@ -1228,7 +1078,6 @@ async function saveEditedObservation() {
       memo: draft.enemy.memo?.trim() ?? "",
     },
     observedAt: draft.observedAt ?? new Date().toISOString(),
-    battleResult: draft.battleResult ?? "unknown",
     completeness: completion.completeness,
     summary: { ...(draft.summary ?? {}), completenessScore: completion.score },
     generals: (draft.generals ?? []).map((general, index) => ({
@@ -1272,7 +1121,6 @@ function observationCard(observation) {
         <div class="badge-row" style="justify-content:flex-end">
           <span class="badge info">${escapeHtml(observation.season_name || state.currentSeason)}</span>
           <span class="badge ${completenessBadgeClass(observation.completeness)}">${completenessLabel(observation.completeness)}</span>
-          <span class="badge ${resultBadgeClass(observation.battle_result)}">戦報：${resultLabel(observation.battle_result)}</span>
         </div>
       </div>
       <div class="observation-body">
@@ -1771,7 +1619,6 @@ function blankDraft(file = null) {
     enemySide: file?.enemySide ?? "right",
     sourceLayout: file ? `${file.orientation}-${file.captureType}` : "manual",
     captureType: file?.captureType ?? "unknown",
-    battleResult: "unknown",
     completeness: "manual",
     completenessScore: 0,
     observedAt: file?.capturedAt ?? new Date().toISOString(),
@@ -1910,7 +1757,7 @@ function renderReview() {
             : ""
         }
         <div class="notice ${draft.completenessScore >= 75 ? "success" : "warning"}">
-          敵側の各文字欄を切り出して拡大したOCR結果です。勝敗と一門名の装飾記号を補正し、スマホ標準スクリーンショットでは凸数も珠の色から判定します。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
+          敵側の各文字欄を切り出して拡大したOCR結果です。一門名は長い名称まで広く切り出し、先頭の紋章記号を補正します。スマホ標準スクリーンショットでは凸数も珠の色から判定します。内容は登録前に確認してください。横画面のゲーム内スクショでは第2戦法が画像外になる場合があります。
           <div class="badge-row" style="margin-top:8px"><span class="badge info">シーズン：${escapeHtml(draft.seasonName || state.currentSeason || "未設定")}</span></div>
         </div>
 
@@ -1924,19 +1771,11 @@ function renderReview() {
             <span>所属一門・陣営</span>
             <input data-draft-path="enemy.groupName" value="${escapeAttr(draft.enemy?.groupName ?? "")}" maxlength="80" placeholder="分かる場合のみ" />
           </label>
-          <div class="form-grid-2">
-            <label class="field">
-              <span>確認日時</span>
-              <input type="datetime-local" data-draft-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
-              <small>${escapeHtml(captureTimeSourceLabel(draft.observedAtSource ?? file?.capturedAtSource))}</small>
-            </label>
-            <label class="field">
-              <span>戦報の表示結果</span>
-              <select data-draft-path="battleResult">
-                ${["unknown", "win", "loss", "draw"].map((value) => `<option value="${value}" ${draft.battleResult === value ? "selected" : ""}>${resultLabel(value)}</option>`).join("")}
-              </select>
-            </label>
-          </div>
+          <label class="field">
+            <span>確認日時</span>
+            <input type="datetime-local" data-draft-path="observedAtLocal" value="${toDatetimeLocal(draft.observedAt)}" />
+            <small>${escapeHtml(captureTimeSourceLabel(draft.observedAtSource ?? file?.capturedAtSource))}</small>
+          </label>
           <label class="field">
             <span>備考</span>
             <textarea data-draft-path="enemy.memo" maxlength="500" placeholder="主力、要注意、対策など">${escapeHtml(draft.enemy?.memo ?? "")}</textarea>
@@ -2055,7 +1894,6 @@ async function saveObservation() {
     captureType: draft.captureType ?? file?.captureType ?? "unknown",
     enemySide: draft.enemySide ?? file?.enemySide ?? "right",
     completeness: completion.completeness,
-    battleResult: draft.battleResult ?? "unknown",
     summary: { ...(draft.summary ?? {}), completenessScore: completion.score },
     ocrDraft: state.rawOcrText ? draft : {},
     generals: (draft.generals ?? []).map((general, index) => ({

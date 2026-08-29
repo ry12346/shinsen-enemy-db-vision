@@ -1,4 +1,4 @@
-const CACHE_NAME = "shinsen-enemy-db-v19-edit-master-v160";
+const CACHE_NAME = "shinsen-enemy-db-v20-no-result-wide-group-v162";
 const APP_SHELL = [
   "./",
   "./index.html",
