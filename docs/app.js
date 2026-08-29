@@ -1006,7 +1006,7 @@ function renderObservationEdit() {
     activeNav: "enemies",
     backAction: "cancel-edit-observation",
     content: `
-      <section class="page-content">
+      <section class="page-content review-page-content">
         <datalist id="edit-general-suggestions">${generalValues.map((value) => `<option value="${escapeAttr(value)}"></option>`).join("")}</datalist>
         <datalist id="edit-tactic-suggestions">${tacticValues.map((value) => `<option value="${escapeAttr(value)}"></option>`).join("")}</datalist>
         <div class="notice info">登録済みデータを修正します。元の戦報画像は保存していないため、必要に応じて手元の画像と照合してください。シーズンは元の登録値を維持します。</div>
@@ -1744,7 +1744,7 @@ function renderReview() {
     activeNav: "upload",
     backAction: "back-to-upload",
     content: `
-      <section class="page-content">
+      <section class="page-content review-page-content">
         ${suggestionsHtml()}
         ${
           file
@@ -2025,34 +2025,15 @@ async function renderMasters() {
   }
 }
 
-function renderMastersBody() {
-  const content = document.querySelector(".page-content");
-  if (!content) return;
-  const type = state.masterType === "tactic" ? "tactic" : "general";
+function filteredMasterItems(type) {
   const source = type === "general" ? state.masters.generals ?? [] : state.masters.tactics ?? [];
   const query = state.masterSearch.trim().toLocaleLowerCase("ja");
-  const items = source.filter((item) => !query || String(item.name ?? "").toLocaleLowerCase("ja").includes(query));
-  const isAdmin = state.member?.role === "admin";
+  return source.filter((item) => !query || String(item.name ?? "").toLocaleLowerCase("ja").includes(query));
+}
 
-  content.innerHTML = `
-    <div class="notice info">
-      ここに登録された名称をOCRの補正辞書として使用します。誤った名称がある場合は管理者が修正または無効化してください。登録済みの戦報データ自体は、敵詳細の「この観測記録を編集」から修正します。
-    </div>
-    <div class="form-grid-2">
-      <button type="button" class="${type === "general" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="general">武将マスタ (${state.masters.generals?.length ?? 0})</button>
-      <button type="button" class="${type === "tactic" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="tactic">戦法マスタ (${state.masters.tactics?.length ?? 0})</button>
-    </div>
-    <div class="search-box" style="margin-top:12px">
-      <input id="master-search" type="search" inputmode="search" value="${escapeAttr(state.masterSearch)}" placeholder="${masterTypeLabel(type)}名で検索" aria-label="マスタを検索" />
-    </div>
-    ${isAdmin ? `
-      <div class="card form-stack">
-        <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタへ追加</h2><small>OCR補正に使用</small></div></div>
-        <form class="form-stack" data-form="add-master-entry">
-          <label class="field"><span>${masterTypeLabel(type)}名</span><input name="name" maxlength="${type === "general" ? 40 : 50}" required placeholder="正しい名称" /></label>
-          <button type="submit" class="primary-button">マスタへ追加</button>
-        </form>
-      </div>` : ""}
+function masterResultsHtml(type, items, isAdmin) {
+  const query = state.masterSearch.trim();
+  return `
     <div class="card">
       <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタ</h2><small>${items.length}件表示</small></div></div>
       ${items.length ? `<div class="admin-member-list">
@@ -2070,9 +2051,48 @@ function renderMastersBody() {
               <button type="button" class="danger-button" style="min-height:40px" data-action="delete-master-entry" data-master-id="${escapeAttr(item.id)}" data-master-type="${type}" data-master-name="${escapeAttr(item.name)}">削除</button>
             </div>
           </div>` : `
-          <div class="admin-member-card"><div class="admin-member-top"><strong>${escapeHtml(item.name)}</strong><span class="badge success">使用中</span></div></div>`).join("")}
+          <div class="admin-member-card"><div class="admin-member-top"><strong>${escapeHtml(item.name)}</strong></div></div>`).join("")}
       </div>` : `<div class="empty-state"><div class="empty-icon">⌕</div><strong>該当する${masterTypeLabel(type)}がありません</strong><span>${query ? "検索条件を変更してください。" : "管理者が正しい名称を追加してください。"}</span></div>`}
     </div>`;
+}
+
+function renderMasterResults() {
+  const host = document.getElementById("master-results");
+  if (!host) return;
+  const type = state.masterType === "tactic" ? "tactic" : "general";
+  const items = filteredMasterItems(type);
+  host.innerHTML = masterResultsHtml(type, items, state.member?.role === "admin");
+}
+
+function renderMastersBody() {
+  const content = document.querySelector(".page-content");
+  if (!content) return;
+  const type = state.masterType === "tactic" ? "tactic" : "general";
+  const items = filteredMasterItems(type);
+  const isAdmin = state.member?.role === "admin";
+
+  content.innerHTML = `
+    <div class="notice info">
+      ${isAdmin
+        ? "ここに登録された名称をOCRの補正辞書として使用します。誤った名称がある場合は修正または無効化してください。登録済みの戦報データ自体は、敵詳細の「この観測記録を編集」から修正します。"
+        : "ここには、OCR補正に使われる有効な武将名・戦法名だけを表示しています。"}
+    </div>
+    <div class="form-grid-2">
+      <button type="button" class="${type === "general" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="general">武将マスタ (${state.masters.generals?.length ?? 0})</button>
+      <button type="button" class="${type === "tactic" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="tactic">戦法マスタ (${state.masters.tactics?.length ?? 0})</button>
+    </div>
+    <div class="search-box master-search-box" style="margin-top:12px">
+      <input id="master-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="none" value="${escapeAttr(state.masterSearch)}" placeholder="${masterTypeLabel(type)}名で検索" aria-label="マスタを検索" />
+    </div>
+    ${isAdmin ? `
+      <div class="card form-stack">
+        <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタへ追加</h2><small>OCR補正に使用</small></div></div>
+        <form class="form-stack" data-form="add-master-entry">
+          <label class="field"><span>${masterTypeLabel(type)}名</span><input name="name" maxlength="${type === "general" ? 40 : 50}" required placeholder="正しい名称" /></label>
+          <button type="submit" class="primary-button">マスタへ追加</button>
+        </form>
+      </div>` : ""}
+    <div id="master-results">${masterResultsHtml(type, items, isAdmin)}</div>`;
 }
 
 async function refreshMasters() {
@@ -2231,30 +2251,90 @@ async function refreshAdmin() {
 }
 
 let searchTimer = null;
+let masterSearchTimer = null;
+let masterSearchComposing = false;
+let enemySearchComposing = false;
+let mobileFormFocusTimer = null;
+
+function isEditableFormControl(node) {
+  return node instanceof HTMLElement && node.matches("input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']), textarea, select");
+}
+
+function updateMobileFormControlState({ scrollIntoView = false } = {}) {
+  const active = document.activeElement;
+  const isMobileWidth = window.matchMedia("(max-width: 820px)").matches;
+  const inReviewForm = isEditableFormControl(active) && Boolean(active.closest(".review-page-content"));
+  document.body.classList.toggle("mobile-form-control-active", isMobileWidth && inReviewForm);
+  if (scrollIntoView && isMobileWidth && inReviewForm) {
+    window.setTimeout(() => {
+      if (document.activeElement === active) {
+        active.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+      }
+    }, 320);
+  }
+}
+
+document.addEventListener("focusin", (event) => {
+  window.clearTimeout(mobileFormFocusTimer);
+  if (isEditableFormControl(event.target) && event.target.closest(".review-page-content")) {
+    updateMobileFormControlState({ scrollIntoView: true });
+  }
+});
+
+document.addEventListener("focusout", () => {
+  window.clearTimeout(mobileFormFocusTimer);
+  mobileFormFocusTimer = window.setTimeout(() => updateMobileFormControlState(), 180);
+});
+
+window.visualViewport?.addEventListener("resize", () => updateMobileFormControlState());
+window.addEventListener("orientationchange", () => window.setTimeout(() => updateMobileFormControlState(), 250));
+
+async function runEnemySearch() {
+  try {
+    const response = await apiRequest("list_enemies", { search: state.enemySearch });
+    state.enemies = response.enemies ?? [];
+    state.currentSeason = response.currentSeason ?? state.currentSeason;
+    renderEnemyListBody();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+document.addEventListener("compositionstart", (event) => {
+  if (event.target?.id === "master-search") masterSearchComposing = true;
+  if (event.target?.id === "enemy-search") enemySearchComposing = true;
+});
+
+document.addEventListener("compositionend", (event) => {
+  if (event.target?.id === "master-search") {
+    masterSearchComposing = false;
+    state.masterSearch = event.target.value;
+    window.clearTimeout(masterSearchTimer);
+    masterSearchTimer = window.setTimeout(renderMasterResults, 0);
+  }
+  if (event.target?.id === "enemy-search") {
+    enemySearchComposing = false;
+    state.enemySearch = event.target.value;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(runEnemySearch, 0);
+  }
+});
 
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.id === "enemy-search") {
-    window.clearTimeout(searchTimer);
     state.enemySearch = target.value;
-    searchTimer = window.setTimeout(async () => {
-      try {
-        const response = await apiRequest("list_enemies", { search: state.enemySearch });
-        state.enemies = response.enemies ?? [];
-        state.currentSeason = response.currentSeason ?? state.currentSeason;
-        renderEnemyListBody();
-        document.getElementById("enemy-search")?.focus({ preventScroll: true });
-      } catch (error) {
-        showToast(error.message, "error");
-      }
-    }, 300);
+    if (event.isComposing || enemySearchComposing) return;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(runEnemySearch, 300);
     return;
   }
 
   if (target.id === "master-search") {
     state.masterSearch = target.value;
-    renderMastersBody();
-    document.getElementById("master-search")?.focus({ preventScroll: true });
+    if (event.isComposing || masterSearchComposing) return;
+    window.clearTimeout(masterSearchTimer);
+    masterSearchTimer = window.setTimeout(renderMasterResults, 100);
     return;
   }
 
