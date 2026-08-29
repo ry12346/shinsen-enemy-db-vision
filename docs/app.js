@@ -52,7 +52,7 @@ const state = {
   systemStatus: null,
 };
 
-const OCR_SHEET_VERSION = "field-sheet-v3";
+const OCR_SHEET_VERSION = "field-sheet-v4";
 const OCR_SHEET_WIDTH = 1800;
 const OCR_SHEET_MARGIN = 24;
 const OCR_SHEET_ROW_HEIGHT = 96;
@@ -84,7 +84,7 @@ function makeRect(x1, x2, y1, y2) {
 
 function portraitPhoneOcrProfile() {
   return {
-    id: "portrait-phone-fields-v3",
+    id: "portrait-phone-fields-v4",
     meta: {
       left: {
         // 長い一門名も途中で切れないよう、プレイヤー名の直前まで広く切り出す。
@@ -124,7 +124,7 @@ function portraitGameOcrProfile() {
   const profile = portraitPhoneOcrProfile();
   return {
     ...profile,
-    id: "portrait-game-fields-v3",
+    id: "portrait-game-fields-v4",
     // ゲーム内保存画像はロゴ帯の分だけ部隊欄が下へ寄る。
     rows: {
       name: [0.283, 0.311],
@@ -139,7 +139,7 @@ function portraitGameOcrProfile() {
 
 function landscapePhoneOcrProfile() {
   return {
-    id: "landscape-phone-fields-v3",
+    id: "landscape-phone-fields-v4",
     meta: {
       left: {
         group: makeRect(0.10, 0.325, 0.085, 0.145),
@@ -163,12 +163,15 @@ function landscapePhoneOcrProfile() {
       ],
     },
     rows: {
-      name: [0.365, 0.445],
-      level: [0.405, 0.47],
+      // 横画面では武将名のすぐ上に「潰走」やS3等の表示が重なる。
+      // 名前の文字帯だけへ絞り、状態表示を武将名として拾わないようにする。
+      name: [0.397, 0.435],
+      level: [0.432, 0.47],
       red: [0.42, 0.455],
-      inherent: [0.53, 0.59],
-      tactic1: [0.685, 0.74],
-      tactic2: [0.835, 0.9],
+      // 戦法ボタンも上下を少し絞り、文字をOCR用シート上で大きくする。
+      inherent: [0.535, 0.585],
+      tactic1: [0.682, 0.735],
+      tactic2: [0.836, 0.888],
     },
     jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
   };
@@ -176,7 +179,7 @@ function landscapePhoneOcrProfile() {
 
 function landscapeGameOcrProfile() {
   return {
-    id: "landscape-game-fields-v3",
+    id: "landscape-game-fields-v4",
     meta: {
       left: {
         group: makeRect(0.10, 0.33, 0.08, 0.145),
@@ -235,9 +238,23 @@ function buildOcrFieldRows(file) {
     const visualIndex = visualColumns[slot - 1];
     const [x1, x2] = profile.columns[side][visualIndex];
     const add = (suffix, yRange, mode = "light") => {
+      let cropX1 = x1;
+      let cropX2 = x2;
+      // 横画面の戦法ボタン左端にはランク記号(S/A等)があり、
+      // その記号が先頭文字と混ざるとGoogle Visionが「一力」などを落とすことがある。
+      // スマホ標準スクショではボタン本文だけを広めに残して切り出す。
+      if (
+        file.orientation === "landscape" &&
+        file.captureType !== "game" &&
+        ["INHERENT", "T1", "T2"].includes(suffix)
+      ) {
+        const width = x2 - x1;
+        cropX1 = x1 + width * 0.20;
+        cropX2 = x2 - width * 0.02;
+      }
       rows.push({
         key: `G${slot}_${suffix}`,
-        rect: yRange ? makeRect(x1, x2, yRange[0], yRange[1]) : null,
+        rect: yRange ? makeRect(cropX1, cropX2, yRange[0], yRange[1]) : null,
         mode,
       });
     };
@@ -627,9 +644,17 @@ function navHtml(active) {
     </nav>`;
 }
 
-function pageHtml({ title, subtitle = "", content, activeNav = state.view, backAction = "" }) {
+function pageHtml({
+  title,
+  subtitle = "",
+  content,
+  activeNav = state.view,
+  backAction = "",
+  showNav = true,
+  shellClass = "",
+}) {
   return `
-    <main class="page-shell">
+    <main class="page-shell ${escapeAttr(shellClass)}">
       <header class="page-header">
         ${
           backAction
@@ -643,7 +668,7 @@ function pageHtml({ title, subtitle = "", content, activeNav = state.view, backA
         ${state.member?.role === "admin" ? `<span class="badge role-pill">管理者</span>` : `<span></span>`}
       </header>
       ${content}
-      ${navHtml(activeNav)}
+      ${showNav ? navHtml(activeNav) : ""}
     </main>`;
 }
 
@@ -986,6 +1011,8 @@ function renderObservationEdit() {
     subtitle: `${draft.seasonName || "未設定"}・登録後の修正`,
     activeNav: "enemies",
     backAction: "cancel-edit-observation",
+    showNav: false,
+    shellClass: "review-shell",
     content: `
       <section class="page-content review-page-content">
         <datalist id="edit-general-suggestions">${generalValues.map((value) => `<option value="${escapeAttr(value)}"></option>`).join("")}</datalist>
@@ -1724,6 +1751,8 @@ function renderReview() {
     subtitle: state.analysisCached ? "同じ画像の保存済みOCR結果" : draft.completeness === "manual" ? "手入力" : "OCR結果は必ず確認",
     activeNav: "upload",
     backAction: "back-to-upload",
+    showNav: false,
+    shellClass: "review-shell",
     content: `
       <section class="page-content review-page-content">
         ${suggestionsHtml()}
@@ -2284,7 +2313,6 @@ function isTextEditingControl(element) {
 function keepReviewFieldVisible(element) {
   if (!window.matchMedia("(pointer: coarse)").matches) return;
   if (!element.closest(".review-page-content")) return;
-  document.body.classList.add("mobile-review-input-active");
   const centerField = () => {
     if (document.activeElement === element) {
       element.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
@@ -2299,12 +2327,8 @@ document.addEventListener("focusin", (event) => {
 });
 
 document.addEventListener("focusout", () => {
-  window.setTimeout(() => {
-    const active = document.activeElement;
-    if (!isTextEditingControl(active) || !active.closest?.(".review-page-content")) {
-      document.body.classList.remove("mobile-review-input-active");
-    }
-  }, 180);
+  // OCR確認/編集画面では固定フッターを使わないため、
+  // キーボード表示の有無でナビを退避させる必要はない。
 });
 
 document.addEventListener("change", async (event) => {
