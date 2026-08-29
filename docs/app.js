@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.7";
+const APP_VERSION = "1.6.10";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
