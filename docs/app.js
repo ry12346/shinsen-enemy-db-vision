@@ -5,8 +5,6 @@ const app = document.getElementById("app");
 const toastRegion = document.getElementById("toast-region");
 const imageDialog = document.getElementById("image-dialog");
 const dialogImage = document.getElementById("dialog-image");
-const codeDialog = document.getElementById("code-dialog");
-const issuedCodeOutput = document.getElementById("issued-code");
 const loadingTemplate = document.getElementById("loading-template");
 
 const normalizedSupabaseUrl = String(config.supabaseUrl ?? "").trim().replace(/\/+$/, "");
@@ -50,7 +48,6 @@ const state = {
   masterSearch: "",
   usage: null,
   admin: null,
-  issuedCode: "",
   currentSeason: "未設定",
   systemStatus: null,
 };
@@ -643,7 +640,7 @@ function pageHtml({ title, subtitle = "", content, activeNav = state.view, backA
           <h1>${escapeHtml(title)}</h1>
           ${subtitle ? `<small>${escapeHtml(subtitle)}</small>` : ""}
         </div>
-        <span class="badge role-pill">${escapeHtml(roleLabel(state.member?.role ?? ""))}</span>
+        ${state.member?.role === "admin" ? `<span class="badge role-pill">管理者</span>` : `<span></span>`}
       </header>
       ${content}
       ${navHtml(activeNav)}
@@ -664,7 +661,7 @@ async function apiRequest(action, payload = {}, { auth = true } = {}) {
     const { data, error } = await supabase.auth.getSession();
     if (error) throw new AppError(error.message, "SESSION_ERROR");
     const token = data.session?.access_token;
-    if (!token) throw new AppError("端末認証がありません。", "AUTH_REQUIRED");
+    if (!token) throw new AppError("利用セッションを開始できませんでした。", "AUTH_REQUIRED");
     state.session = data.session;
     headers.Authorization = `Bearer ${token}`;
   }
@@ -742,26 +739,12 @@ function renderNotConfigured() {
 }
 
 function renderAuth(needsBootstrap = false) {
-  if (needsBootstrap) {
+  if (!needsBootstrap) {
     app.innerHTML = `
-      <div class="auth-shell">
-        <section class="auth-card">
-          <div class="brand-mark">DB</div>
-          <h1>管理者の初期登録</h1>
-          <p class="muted">DatabaseとEdge Functionを設定した本人だけが行ってください。この画面は最初の1回だけ有効です。</p>
-          <form class="form-stack" data-form="bootstrap">
-            <label class="field">
-              <span>管理者名</span>
-              <input name="displayName" maxlength="40" autocomplete="nickname" required placeholder="ゲーム内名など" />
-            </label>
-            <label class="field">
-              <span>BOOTSTRAP_SECRET</span>
-              <input name="secret" type="password" maxlength="200" autocomplete="one-time-code" required placeholder="Supabaseに設定した秘密文字列" />
-            </label>
-            <button type="submit" class="primary-button">初期管理者として登録</button>
-            <button type="button" class="secondary-button" data-action="cancel-bootstrap">アクセスコード入力へ戻る</button>
-          </form>
-        </section>
+      <div class="center-screen">
+        <div class="brand-mark">DB</div>
+        <h1>${escapeHtml(config.appTitle || "敵部隊データベース")}</h1>
+        <p class="muted">利用準備中...</p>
       </div>`;
     return;
   }
@@ -770,19 +753,19 @@ function renderAuth(needsBootstrap = false) {
     <div class="auth-shell">
       <section class="auth-card">
         <div class="brand-mark">DB</div>
-        <h1>${escapeHtml(config.appTitle || "敵部隊データベース")}</h1>
-        <p class="muted">初回のみ、管理者から受け取った個別コードを入力します。</p>
-        <form class="form-stack" data-form="redeem-code">
+        <h1>管理者の初期登録</h1>
+        <p class="muted">DatabaseとEdge Functionを設定した本人だけが行ってください。この画面は最初の1回だけ有効です。</p>
+        <form class="form-stack" data-form="bootstrap">
           <label class="field">
-            <span>アクセスコード</span>
-            <input name="code" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" minlength="12" maxlength="32" required placeholder="XXXX-XXXX-XXXX-XXXX" />
+            <span>管理者名</span>
+            <input name="displayName" maxlength="40" autocomplete="nickname" required placeholder="ゲーム内名など" />
           </label>
-          <button type="submit" class="primary-button">この端末を認証</button>
+          <label class="field">
+            <span>BOOTSTRAP_SECRET</span>
+            <input name="secret" type="password" maxlength="200" autocomplete="one-time-code" required placeholder="Supabaseに設定した秘密文字列" />
+          </label>
+          <button type="submit" class="primary-button">初期管理者として登録</button>
         </form>
-        <div class="notice info" style="margin-top:16px">
-          認証後はこの端末にログイン状態が保存されます。Safariの履歴・Webサイトデータを削除すると、管理者によるコード再発行が必要です。
-        </div>
-        <button type="button" class="ghost-button" style="width:100%;margin-top:14px" data-action="show-bootstrap">最初の管理者登録</button>
       </section>
     </div>`;
 }
@@ -794,23 +777,22 @@ async function initialize() {
   }
 
   try {
-    const { data } = await supabase.auth.getSession();
-    state.session = data.session;
+    // 一般利用者にはコード入力を求めない。Supabaseの匿名セッションはAPI通信用に内部で自動作成する。
+    await ensureAnonymousSession();
+    const status = await apiRequest("status");
+    state.systemStatus = status;
 
-    if (state.session) {
-      const status = await apiRequest("status");
-      state.systemStatus = status;
-      if (status.registered && status.member?.active) {
-        state.member = status.member;
-        await navigate("enemies");
-        return;
-      }
-      renderAuth(Boolean(status.needsBootstrap));
+    if (status.needsBootstrap) {
+      renderAuth(true);
       return;
     }
 
-    // 初回表示だけでは匿名ユーザーを作成しない。コード入力または管理者初期登録時に作成する。
-    renderAuth(false);
+    if (!status.registered || !status.member?.active) {
+      throw new AppError("一般利用の準備に失敗しました。再読み込みしてください。", "PUBLIC_JOIN_FAILED");
+    }
+
+    state.member = status.member;
+    await navigate("enemies");
   } catch (error) {
     app.innerHTML = `
       <div class="center-screen">
@@ -939,8 +921,7 @@ async function openEnemy(enemyId) {
 
 function canEditObservation(observation) {
   if (!observation || !state.member) return false;
-  if (state.member.role === "admin") return true;
-  return state.member.role === "editor" && observation.created_by === state.member.id;
+  return ["editor", "admin"].includes(state.member.role);
 }
 
 function draftFromObservation(observation, enemy) {
@@ -982,7 +963,7 @@ async function startEditObservation(observationId) {
     return;
   }
   if (!canEditObservation(observation)) {
-    showToast("この観測記録を編集する権限がありません。", "error");
+    showToast("この記録を編集する権限がありません。", "error");
     return;
   }
   state.editingObservationId = observation.id;
@@ -1142,7 +1123,7 @@ function observationCard(observation) {
           })
           .join("")}
         <div class="admin-actions" style="margin-top:14px">
-          ${canEditObservation(observation) ? `<button type="button" class="secondary-button" style="min-height:44px" data-action="edit-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を編集</button>` : ""}
+          ${canEditObservation(observation) ? `<button type="button" class="secondary-button" style="min-height:44px" data-action="edit-observation" data-observation-id="${escapeAttr(observation.id)}">この記録を編集</button>` : ""}
           ${state.member?.role === "admin" ? `<button type="button" class="danger-button" style="min-height:44px" data-action="delete-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を削除</button>` : ""}
         </div>
       </div>
@@ -1688,7 +1669,7 @@ async function analyzeCurrent() {
     renderReview();
   } catch (error) {
     showToast(error.message, "error");
-    if (["MEMBER_DAILY_LIMIT", "GLOBAL_DAILY_LIMIT", "GLOBAL_MONTHLY_LIMIT"].includes(error.code)) {
+    if (["GLOBAL_DAILY_LIMIT", "GLOBAL_MONTHLY_LIMIT"].includes(error.code)) {
       state.draft = blankDraft(file);
       state.draftUploadId = file.id;
       state.rawOcrText = "";
@@ -1988,7 +1969,6 @@ function renderUsageBody() {
   const usage = state.usage;
   content.innerHTML = `
     <div class="notice info">対象シーズン：${escapeHtml(usage.currentSeason || state.currentSeason)}。同一画像はOCRキャッシュを利用するため、無料枠を再消費しません。上限到達後も手入力は利用できます。</div>
-    ${usageCard("自分・本日", usage.memberDaily, "1人による大量使用を防止")}
     ${usageCard("一門全体・本日", usage.globalDaily, "日単位の暴走を防止")}
     ${usageCard("一門全体・今月", usage.globalMonthly, `システム上の絶対上限は月${usage.globalMonthly.hardLimit ?? 900}枚`)}
     <div class="card">
@@ -2025,22 +2005,76 @@ async function renderMasters() {
   }
 }
 
-function filteredMasterItems(type) {
-  const source = type === "general" ? state.masters.generals ?? [] : state.masters.tactics ?? [];
-  const query = state.masterSearch.trim().toLocaleLowerCase("ja");
-  return source.filter((item) => !query || String(item.name ?? "").toLocaleLowerCase("ja").includes(query));
+function normalizeMasterSearch(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja")
+    .replace(/[\s\u3000]+/g, "");
 }
 
-function masterResultsHtml(type, items, isAdmin) {
-  const query = state.masterSearch.trim();
-  return `
+function applyMasterSearchFilter() {
+  const input = document.getElementById("master-search");
+  const root = document.querySelector(".page-content");
+  if (!input || !root) return;
+
+  const query = normalizeMasterSearch(input.value);
+  state.masterSearch = input.value;
+  let visibleCount = 0;
+  root.querySelectorAll("[data-master-entry]").forEach((entry) => {
+    const name = entry.dataset.masterSearchName ?? "";
+    const visible = !query || name.includes(query);
+    entry.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+
+  const count = root.querySelector("[data-master-count]");
+  if (count) count.textContent = `${visibleCount}件表示`;
+
+  const empty = root.querySelector("[data-master-empty]");
+  if (empty) {
+    empty.hidden = visibleCount > 0;
+    const message = empty.querySelector("[data-master-empty-message]");
+    if (message) {
+      message.textContent = query
+        ? "検索条件を変更してください。"
+        : "管理者が正しい名称を追加してください。";
+    }
+  }
+}
+
+function renderMastersBody() {
+  const content = document.querySelector(".page-content");
+  if (!content) return;
+  const type = state.masterType === "tactic" ? "tactic" : "general";
+  const source = type === "general" ? state.masters.generals ?? [] : state.masters.tactics ?? [];
+  const isAdmin = state.member?.role === "admin";
+
+  content.innerHTML = `
+    <div class="notice info">
+      ここに登録された名称をOCRの補正辞書として使用します。表示される名称はゲーム内で実際に装着・使用されているという意味ではありません。誤った名称がある場合は管理者が修正または補正対象から除外してください。登録済みの戦報データ自体は、敵詳細の「この記録を編集」から修正します。
+    </div>
+    <div class="form-grid-2">
+      <button type="button" class="${type === "general" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="general">武将マスタ (${state.masters.generals?.length ?? 0})</button>
+      <button type="button" class="${type === "tactic" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="tactic">戦法マスタ (${state.masters.tactics?.length ?? 0})</button>
+    </div>
+    <div class="search-box" style="margin-top:12px">
+      <input id="master-search" type="search" inputmode="search" value="${escapeAttr(state.masterSearch)}" placeholder="${masterTypeLabel(type)}名で検索" aria-label="マスタを検索" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    </div>
+    ${isAdmin ? `
+      <div class="card form-stack">
+        <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタへ追加</h2><small>OCR補正候補として追加</small></div></div>
+        <form class="form-stack" data-form="add-master-entry">
+          <label class="field"><span>${masterTypeLabel(type)}名</span><input name="name" maxlength="${type === "general" ? 40 : 50}" required placeholder="正しい名称" /></label>
+          <button type="submit" class="primary-button">マスタへ追加</button>
+        </form>
+      </div>` : ""}
     <div class="card">
-      <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタ</h2><small>${items.length}件表示</small></div></div>
-      ${items.length ? `<div class="admin-member-list">
-        ${items.map((item) => isAdmin ? `
-          <div class="admin-member-card">
+      <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタ</h2><small data-master-count>0件表示</small></div></div>
+      <div class="admin-member-list" data-master-list>
+        ${source.map((item) => isAdmin ? `
+          <div class="admin-member-card" data-master-entry data-master-search-name="${escapeAttr(normalizeMasterSearch(item.name))}">
             <div class="admin-member-top">
-              <div><strong>${escapeHtml(item.name)}</strong><div class="badge-row" style="margin-top:6px"><span class="badge ${item.active ? "success" : "danger"}">${item.active ? "OCR補正に使用" : "無効"}</span></div></div>
+              <div><strong>${escapeHtml(item.name)}</strong><div class="badge-row" style="margin-top:6px"><span class="badge ${item.active ? "success" : "danger"}">${item.active ? "OCR補正対象" : "補正から除外中"}</span></div></div>
             </div>
             <div class="admin-role-row">
               <input data-master-name-id="${escapeAttr(item.id)}" value="${escapeAttr(item.name)}" maxlength="${type === "general" ? 40 : 50}" aria-label="${escapeAttr(item.name)}の名称" />
@@ -2051,48 +2085,18 @@ function masterResultsHtml(type, items, isAdmin) {
               <button type="button" class="danger-button" style="min-height:40px" data-action="delete-master-entry" data-master-id="${escapeAttr(item.id)}" data-master-type="${type}" data-master-name="${escapeAttr(item.name)}">削除</button>
             </div>
           </div>` : `
-          <div class="admin-member-card"><div class="admin-member-top"><strong>${escapeHtml(item.name)}</strong></div></div>`).join("")}
-      </div>` : `<div class="empty-state"><div class="empty-icon">⌕</div><strong>該当する${masterTypeLabel(type)}がありません</strong><span>${query ? "検索条件を変更してください。" : "管理者が正しい名称を追加してください。"}</span></div>`}
+          <div class="admin-member-card" data-master-entry data-master-search-name="${escapeAttr(normalizeMasterSearch(item.name))}">
+            <div class="admin-member-top"><strong>${escapeHtml(item.name)}</strong></div>
+          </div>`).join("")}
+      </div>
+      <div class="empty-state" data-master-empty hidden>
+        <div class="empty-icon">⌕</div>
+        <strong>該当する${masterTypeLabel(type)}がありません</strong>
+        <span data-master-empty-message></span>
+      </div>
     </div>`;
-}
 
-function renderMasterResults() {
-  const host = document.getElementById("master-results");
-  if (!host) return;
-  const type = state.masterType === "tactic" ? "tactic" : "general";
-  const items = filteredMasterItems(type);
-  host.innerHTML = masterResultsHtml(type, items, state.member?.role === "admin");
-}
-
-function renderMastersBody() {
-  const content = document.querySelector(".page-content");
-  if (!content) return;
-  const type = state.masterType === "tactic" ? "tactic" : "general";
-  const items = filteredMasterItems(type);
-  const isAdmin = state.member?.role === "admin";
-
-  content.innerHTML = `
-    <div class="notice info">
-      ${isAdmin
-        ? "ここに登録された名称をOCRの補正辞書として使用します。誤った名称がある場合は修正または無効化してください。登録済みの戦報データ自体は、敵詳細の「この観測記録を編集」から修正します。"
-        : "ここには、OCR補正に使われる有効な武将名・戦法名だけを表示しています。"}
-    </div>
-    <div class="form-grid-2">
-      <button type="button" class="${type === "general" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="general">武将マスタ (${state.masters.generals?.length ?? 0})</button>
-      <button type="button" class="${type === "tactic" ? "primary-button" : "secondary-button"}" data-action="switch-master-type" data-master-type="tactic">戦法マスタ (${state.masters.tactics?.length ?? 0})</button>
-    </div>
-    <div class="search-box master-search-box" style="margin-top:12px">
-      <input id="master-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="none" value="${escapeAttr(state.masterSearch)}" placeholder="${masterTypeLabel(type)}名で検索" aria-label="マスタを検索" />
-    </div>
-    ${isAdmin ? `
-      <div class="card form-stack">
-        <div class="card-header"><div><h2>${masterTypeLabel(type)}マスタへ追加</h2><small>OCR補正に使用</small></div></div>
-        <form class="form-stack" data-form="add-master-entry">
-          <label class="field"><span>${masterTypeLabel(type)}名</span><input name="name" maxlength="${type === "general" ? 40 : 50}" required placeholder="正しい名称" /></label>
-          <button type="submit" class="primary-button">マスタへ追加</button>
-        </form>
-      </div>` : ""}
-    <div id="master-results">${masterResultsHtml(type, items, isAdmin)}</div>`;
+  applyMasterSearchFilter();
 }
 
 async function refreshMasters() {
@@ -2104,7 +2108,7 @@ async function refreshMasters() {
 async function renderSettings() {
   app.innerHTML = pageHtml({
     title: "設定",
-    subtitle: state.member?.displayName ?? "",
+    subtitle: state.member?.role === "admin" ? (state.member?.displayName ?? "") : "",
     activeNav: "settings",
     content: `<section class="page-content"><div class="card"><p class="muted" style="margin:0">読み込み中...</p></div></section>`,
   });
@@ -2125,9 +2129,6 @@ function renderSettingsBody() {
   if (!content) return;
   const member = state.member;
   const adminData = state.admin;
-  const activeAdminCount = (adminData?.members ?? []).filter(
-    (item) => item.active && item.role === "admin",
-  ).length;
 
   content.innerHTML = `
     ${
@@ -2140,30 +2141,20 @@ function renderSettingsBody() {
         ? `<div class="notice warning"><strong>ALLOWED_ORIGINSが未制限です。</strong><br>GitHub Pagesのドメインだけを許可する設定へ変更してください。</div>`
         : ""
     }
+
     ${
-      member?.role === "admin" && adminData && activeAdminCount < 2
-        ? `<div class="notice warning"><strong>予備管理者を1名登録してください。</strong><br>匿名認証は端末に保存されるため、唯一の管理者がSafariデータを削除・紛失すると通常画面から復旧できません。信頼できる幹部をもう1名「管理者」で追加してください。</div>`
+      member?.role === "admin"
+        ? `<div class="card">
+            <div class="card-header"><div><h2>管理者</h2><small>初回登録した管理端末</small></div></div>
+            <p class="muted" style="margin:0">一般利用者にはアクセスコードや個別認証を求めません。管理者権限だけ、この端末の内部セッションで保持します。</p>
+          </div>`
         : ""
     }
-    <div class="card">
-      <div class="card-header"><div><h2>この端末</h2><small>認証は端末内に保存</small></div></div>
-      <div class="kpi-grid">
-        <div class="kpi"><strong>${escapeHtml(member?.displayName ?? "")}</strong><span>メンバー名</span></div>
-        <div class="kpi"><strong>${escapeHtml(roleLabel(member?.role ?? ""))}</strong><span>権限</span></div>
-      </div>
-    </div>
 
     <div class="card install-hint">
       <h2>iPhoneのホーム画面へ追加</h2>
       <span>Safari下部の共有ボタン →「ホーム画面に追加」を選ぶと、アプリのように全画面で使えます。</span>
     </div>
-
-    <details>
-      <summary>端末認証について</summary>
-      <div class="details-body">
-        <p class="muted">Safariの履歴・Webサイトデータを削除した場合や別端末で使う場合は、管理者による新しいアクセスコードの発行が必要です。</p>
-      </div>
-    </details>
 
     <div class="card">
       <div class="card-header"><div><h2>武将・戦法マスタ</h2><small>OCRの誤読補正辞書</small></div></div>
@@ -2173,57 +2164,16 @@ function renderSettingsBody() {
 
     ${
       member?.role === "admin" && adminData
-        ? `
-          <div class="card form-stack">
+        ? `<div class="card form-stack">
             <div class="card-header"><div><h2>シーズン・OCR上限</h2><small>月900枚を超える設定は不可</small></div></div>
             <form class="form-stack" data-form="update-limits">
-              <label class="field"><span>現在のシーズン名</span><input name="currentSeason" maxlength="60" value="${escapeAttr(adminData.settings.current_season ?? state.currentSeason)}" placeholder="例：S3 九州争覇" required /></label>
-              <div class="form-grid-3">
-                <label class="field"><span>個人/日</span><input name="perMemberDaily" type="number" inputmode="numeric" min="1" max="50" value="${adminData.settings.per_member_daily_limit}" /></label>
+              <label class="field"><span>現在のシーズン名</span><input name="currentSeason" maxlength="60" value="${escapeAttr(adminData.settings.current_season ?? state.currentSeason)}" placeholder="例：PK 四雄怒涛" required /></label>
+              <div class="form-grid-2">
                 <label class="field"><span>全体/日</span><input name="globalDaily" type="number" inputmode="numeric" min="1" max="100" value="${adminData.settings.global_daily_limit}" /></label>
                 <label class="field"><span>全体/月</span><input name="globalMonthly" type="number" inputmode="numeric" min="1" max="900" value="${adminData.settings.global_monthly_limit}" /></label>
               </div>
               <button type="submit" class="secondary-button">上限を更新</button>
             </form>
-          </div>
-
-          <div class="card form-stack">
-            <div class="card-header"><div><h2>メンバー追加</h2><small>個別コードを1つ発行</small></div></div>
-            <form class="form-stack" data-form="create-member">
-              <label class="field"><span>表示名</span><input name="displayName" maxlength="40" required placeholder="ゲーム内名" /></label>
-              <label class="field"><span>権限</span><select name="role"><option value="viewer">閲覧のみ</option><option value="editor" selected>閲覧＋OCR登録</option><option value="admin">管理者</option></select></label>
-              <button type="submit" class="primary-button">追加してコード発行</button>
-            </form>
-          </div>
-
-          <div class="card">
-            <div class="card-header"><div><h2>メンバー管理</h2><small>${adminData.members?.length ?? 0}名</small></div></div>
-            <div class="admin-member-list">
-              ${(adminData.members ?? [])
-                .map(
-                  (item) => `
-                    <div class="admin-member-card">
-                      <div class="admin-member-top">
-                        <div><strong>${escapeHtml(item.display_name)}</strong><div class="badge-row" style="margin-top:6px"><span class="badge">${roleLabel(item.role)}</span><span class="badge ${item.active ? "success" : "danger"}">${item.active ? "有効" : "停止"}</span><span class="badge">端末${item.deviceCount}</span><span class="badge info">OCR 今日${item.ocrToday ?? 0}</span><span class="badge info">今月${item.ocrMonth ?? 0}</span></div></div>
-                        <small>${item.lastSeenAt ? relativeTime(item.lastSeenAt) : "未使用"}</small>
-                      </div>
-                      <div class="admin-role-row">
-                        <select data-role-member-id="${item.id}" aria-label="${escapeAttr(item.display_name)}の権限" ${item.id === member.id ? "disabled" : ""}>
-                          <option value="viewer" ${item.role === "viewer" ? "selected" : ""}>閲覧</option>
-                          <option value="editor" ${item.role === "editor" ? "selected" : ""}>登録</option>
-                          <option value="admin" ${item.role === "admin" ? "selected" : ""}>管理者</option>
-                        </select>
-                        <button type="button" class="compact-button" data-action="change-member-role" data-member-id="${item.id}" ${item.id === member.id ? "disabled" : ""}>権限変更</button>
-                      </div>
-                      <div class="admin-actions">
-                        <button type="button" class="compact-button" data-action="issue-code" data-member-id="${item.id}" ${!item.active ? "disabled" : ""}>コード発行</button>
-                        <button type="button" class="compact-button" data-action="reset-devices" data-member-id="${item.id}" ${item.id === member.id ? "disabled" : ""}>端末解除</button>
-                        <button type="button" class="${item.active ? "danger-button" : "secondary-button"}" style="min-height:40px" data-action="toggle-member" data-member-id="${item.id}" data-active="${item.active ? "false" : "true"}" ${item.id === member.id ? "disabled" : ""}>${item.active ? "利用停止" : "再開"}</button>
-                      </div>
-                    </div>`,
-                )
-                .join("")}
-            </div>
           </div>`
         : ""
     }
@@ -2251,90 +2201,37 @@ async function refreshAdmin() {
 }
 
 let searchTimer = null;
-let masterSearchTimer = null;
-let masterSearchComposing = false;
-let enemySearchComposing = false;
-let mobileFormFocusTimer = null;
 
-function isEditableFormControl(node) {
-  return node instanceof HTMLElement && node.matches("input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']), textarea, select");
+function scheduleEnemySearch() {
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(async () => {
+    try {
+      const response = await apiRequest("list_enemies", { search: state.enemySearch });
+      state.enemies = response.enemies ?? [];
+      state.currentSeason = response.currentSeason ?? state.currentSeason;
+      renderEnemyListBody();
+      document.getElementById("enemy-search")?.focus({ preventScroll: true });
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  }, 300);
 }
-
-function updateMobileFormControlState({ scrollIntoView = false } = {}) {
-  const active = document.activeElement;
-  const isMobileWidth = window.matchMedia("(max-width: 820px)").matches;
-  const inReviewForm = isEditableFormControl(active) && Boolean(active.closest(".review-page-content"));
-  document.body.classList.toggle("mobile-form-control-active", isMobileWidth && inReviewForm);
-  if (scrollIntoView && isMobileWidth && inReviewForm) {
-    window.setTimeout(() => {
-      if (document.activeElement === active) {
-        active.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
-      }
-    }, 320);
-  }
-}
-
-document.addEventListener("focusin", (event) => {
-  window.clearTimeout(mobileFormFocusTimer);
-  if (isEditableFormControl(event.target) && event.target.closest(".review-page-content")) {
-    updateMobileFormControlState({ scrollIntoView: true });
-  }
-});
-
-document.addEventListener("focusout", () => {
-  window.clearTimeout(mobileFormFocusTimer);
-  mobileFormFocusTimer = window.setTimeout(() => updateMobileFormControlState(), 180);
-});
-
-window.visualViewport?.addEventListener("resize", () => updateMobileFormControlState());
-window.addEventListener("orientationchange", () => window.setTimeout(() => updateMobileFormControlState(), 250));
-
-async function runEnemySearch() {
-  try {
-    const response = await apiRequest("list_enemies", { search: state.enemySearch });
-    state.enemies = response.enemies ?? [];
-    state.currentSeason = response.currentSeason ?? state.currentSeason;
-    renderEnemyListBody();
-  } catch (error) {
-    showToast(error.message, "error");
-  }
-}
-
-document.addEventListener("compositionstart", (event) => {
-  if (event.target?.id === "master-search") masterSearchComposing = true;
-  if (event.target?.id === "enemy-search") enemySearchComposing = true;
-});
-
-document.addEventListener("compositionend", (event) => {
-  if (event.target?.id === "master-search") {
-    masterSearchComposing = false;
-    state.masterSearch = event.target.value;
-    window.clearTimeout(masterSearchTimer);
-    masterSearchTimer = window.setTimeout(renderMasterResults, 0);
-  }
-  if (event.target?.id === "enemy-search") {
-    enemySearchComposing = false;
-    state.enemySearch = event.target.value;
-    window.clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(runEnemySearch, 0);
-  }
-});
 
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.id === "enemy-search") {
     state.enemySearch = target.value;
-    if (event.isComposing || enemySearchComposing) return;
-    window.clearTimeout(searchTimer);
-    searchTimer = window.setTimeout(runEnemySearch, 300);
+    if (!event.isComposing && target.dataset.composing !== "true") {
+      scheduleEnemySearch();
+    }
     return;
   }
 
   if (target.id === "master-search") {
     state.masterSearch = target.value;
-    if (event.isComposing || masterSearchComposing) return;
-    window.clearTimeout(masterSearchTimer);
-    masterSearchTimer = window.setTimeout(renderMasterResults, 100);
+    if (!event.isComposing && target.dataset.composing !== "true") {
+      applyMasterSearchFilter();
+    }
     return;
   }
 
@@ -2360,6 +2257,60 @@ document.addEventListener("input", (event) => {
     if (target.type === "number") value = value === "" ? null : Number(value);
     setByPath(state.draft, path, value);
   }
+});
+
+
+document.addEventListener("compositionstart", (event) => {
+  const target = event.target;
+  if (target?.id === "master-search" || target?.id === "enemy-search") {
+    target.dataset.composing = "true";
+  }
+});
+
+document.addEventListener("compositionend", (event) => {
+  const target = event.target;
+  if (target?.id !== "master-search" && target?.id !== "enemy-search") return;
+  delete target.dataset.composing;
+  if (target.id === "master-search") {
+    state.masterSearch = target.value;
+    applyMasterSearchFilter();
+    return;
+  }
+  state.enemySearch = target.value;
+  scheduleEnemySearch();
+});
+
+function isTextEditingControl(element) {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element instanceof HTMLTextAreaElement) return true;
+  if (!(element instanceof HTMLInputElement)) return false;
+  return ["text", "search", "number", "email", "password", "tel", "url"].includes(element.type);
+}
+
+function keepReviewFieldVisible(element) {
+  if (!window.matchMedia("(pointer: coarse)").matches) return;
+  if (!element.closest(".review-page-content")) return;
+  document.body.classList.add("mobile-review-input-active");
+  const centerField = () => {
+    if (document.activeElement === element) {
+      element.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }
+  };
+  window.setTimeout(centerField, 180);
+  window.setTimeout(centerField, 520);
+}
+
+document.addEventListener("focusin", (event) => {
+  if (isTextEditingControl(event.target)) keepReviewFieldVisible(event.target);
+});
+
+document.addEventListener("focusout", () => {
+  window.setTimeout(() => {
+    const active = document.activeElement;
+    if (!isTextEditingControl(active) || !active.closest?.(".review-page-content")) {
+      document.body.classList.remove("mobile-review-input-active");
+    }
+  }, 180);
 });
 
 document.addEventListener("change", async (event) => {
@@ -2397,26 +2348,6 @@ document.addEventListener("submit", async (event) => {
     }
   }
 
-  if (form.dataset.form === "redeem-code") {
-    showLoading("端末を認証中...");
-    try {
-      await ensureAnonymousSession();
-      const status = await apiRequest("status");
-      state.systemStatus = status;
-      if (status.needsBootstrap) {
-        renderAuth(true);
-        showToast("先に初期管理者を登録してください。", "error");
-        return;
-      }
-      const response = await apiRequest("redeem_code", { code: formData.get("code") });
-      state.member = response.member;
-      await navigate("enemies");
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
 
   if (form.dataset.form === "add-master-entry") {
     showLoading("マスタへ追加中...");
@@ -2436,28 +2367,11 @@ document.addEventListener("submit", async (event) => {
     }
   }
 
-  if (form.dataset.form === "create-member") {
-    showLoading("メンバーを追加中...");
-    try {
-      const response = await apiRequest("admin_create_member", {
-        displayName: formData.get("displayName"),
-        role: formData.get("role"),
-      });
-      showIssuedCode(response.accessCode);
-      await refreshAdmin();
-      form.reset();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
 
   if (form.dataset.form === "update-limits") {
     showLoading("上限を更新中...");
     try {
       await apiRequest("admin_update_limits", {
-        perMemberDaily: Number(formData.get("perMemberDaily")),
         globalDaily: Number(formData.get("globalDaily")),
         globalMonthly: Number(formData.get("globalMonthly")),
         currentSeason: formData.get("currentSeason"),
@@ -2478,21 +2392,6 @@ document.addEventListener("click", async (event) => {
   const action = button.dataset.action;
 
   if (action === "reload-app") window.location.reload();
-  if (action === "cancel-bootstrap") renderAuth(false);
-  if (action === "show-bootstrap") {
-    showLoading("初期状態を確認中...");
-    try {
-      await ensureAnonymousSession();
-      const status = await apiRequest("status");
-      state.systemStatus = status;
-      if (status.needsBootstrap) renderAuth(true);
-      else showToast("初期管理者は登録済みです。管理者からアクセスコードを受け取ってください。", "error");
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
   if (action === "navigate") await navigate(button.dataset.view);
   if (action === "back-to-settings") await navigate("settings");
   if (action === "switch-master-type") {
@@ -2618,76 +2517,6 @@ document.addEventListener("click", async (event) => {
   if (action === "analyze-current") await analyzeCurrent();
   if (action === "manual-entry") await startManualEntry();
   if (action === "save-observation") await saveObservation();
-
-  if (action === "close-code-dialog") codeDialog.close();
-  if (action === "copy-issued-code") {
-    try {
-      await navigator.clipboard.writeText(state.issuedCode);
-      showToast("コードをコピーしました。", "success");
-    } catch {
-      showToast("コピーできませんでした。コードを長押ししてコピーしてください。", "error");
-    }
-  }
-
-  if (action === "issue-code") {
-    showLoading("コードを発行中...");
-    try {
-      const response = await apiRequest("admin_issue_code", { memberId: button.dataset.memberId });
-      showIssuedCode(response.accessCode);
-      await refreshAdmin();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
-
-  if (action === "reset-devices") {
-    if (!window.confirm("このメンバーの登録端末をすべて解除しますか？新しいコードが必要になります。")) return;
-    showLoading("端末を解除中...");
-    try {
-      await apiRequest("admin_reset_devices", { memberId: button.dataset.memberId });
-      showToast("登録端末を解除しました。", "success");
-      await refreshAdmin();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
-
-  if (action === "change-member-role") {
-    const roleSelect = document.querySelector(`[data-role-member-id="${button.dataset.memberId}"]`);
-    const role = roleSelect?.value;
-    if (!["viewer", "editor", "admin"].includes(role)) return;
-    if (!window.confirm(`このメンバーの権限を「${roleLabel(role)}」へ変更しますか？`)) return;
-    showLoading("権限を変更中...");
-    try {
-      await apiRequest("admin_set_member_role", { memberId: button.dataset.memberId, role });
-      showToast("権限を変更しました。", "success");
-      await refreshAdmin();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
-
-  if (action === "toggle-member") {
-    const active = button.dataset.active === "true";
-    const verb = active ? "再開" : "停止";
-    if (!window.confirm(`このメンバーの利用を${verb}しますか？`)) return;
-    showLoading(`利用を${verb}中...`);
-    try {
-      await apiRequest("admin_set_member_active", { memberId: button.dataset.memberId, active });
-      showToast(`利用を${verb}しました。`, "success");
-      await refreshAdmin();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
-  }
 
   if (action === "delete-observation") {
     if (!window.confirm("この観測記録を削除しますか？元に戻せません。")) return;
