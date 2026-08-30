@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.10";
+const APP_VERSION = "1.6.11";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -121,6 +121,39 @@ function portraitPhoneOcrProfile() {
   };
 }
 
+function isTallAndroidPortraitPhone(file) {
+  if (!file || file.orientation !== "portrait" || file.captureType === "game") return false;
+  const width = Number(file.width || 0);
+  const height = Number(file.height || 0);
+  if (!width || !height) return false;
+  // Androidの20:9系スクリーンショットでは、ゲームUI上部（一門・プレイヤー名）が
+  // iPhone系より約3%上へ寄る。一方カード本体の正規化座標はほぼ共通。
+  // 既存iPhoneプロファイルを壊さないよう、縦横比が十分に縦長な端末だけ分岐する。
+  return height / width >= 2.19;
+}
+
+function portraitAndroidPhoneOcrProfile() {
+  const profile = portraitPhoneOcrProfile();
+  return {
+    ...profile,
+    id: "portrait-phone-fields-v5",
+    meta: {
+      left: {
+        // 紋章アイコンを避けつつ、長めの一門名をプレイヤー名直前まで確保する。
+        group: makeRect(0.065, 0.268, 0.108, 0.135),
+        player: makeRect(0.278, 0.505, 0.108, 0.135),
+      },
+      right: {
+        group: makeRect(0.620, 0.790, 0.108, 0.135),
+        player: makeRect(0.800, 0.990, 0.108, 0.135),
+      },
+    },
+    // Android 20:9系では珠列がカード列内でiPhoneより右寄り。
+    // IMG_2459で 2凸 / 3凸 / 4凸 を正しく分離できる位置へ補正。
+    jewel: { start: 0.57, step: 0.095, halfWidth: 0.04 },
+  };
+}
+
 function portraitGameOcrProfile() {
   const profile = portraitPhoneOcrProfile();
   return {
@@ -218,9 +251,9 @@ function landscapeGameOcrProfile() {
 
 function getOcrProfile(file) {
   if (file.orientation === "portrait") {
-    return file.captureType === "game"
-      ? portraitGameOcrProfile()
-      : portraitPhoneOcrProfile();
+    if (file.captureType === "game") return portraitGameOcrProfile();
+    if (isTallAndroidPortraitPhone(file)) return portraitAndroidPhoneOcrProfile();
+    return portraitPhoneOcrProfile();
   }
   if (file.captureType === "game") return landscapeGameOcrProfile();
   return landscapePhoneOcrProfile();
