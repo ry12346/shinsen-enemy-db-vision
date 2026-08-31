@@ -1267,7 +1267,7 @@ dialog::backdrop {
   display: none !important;
 }
 
-/* v1.6.13: トップ一覧で複数部隊を比較できるよう、情報密度を上げつつスマホでは戦法名を省略しない。 */
+/* v1.6.14: トップ一覧では大将見出しと戦法番号の強調色を使わず、編成情報そのものを優先する。 */
 .enemy-card-meta {
   flex: 0 0 auto;
   display: flex;
@@ -1293,19 +1293,10 @@ dialog::backdrop {
 
 .enemy-team-preview-head {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   margin-bottom: 7px;
-}
-
-.enemy-team-preview-head strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82rem;
-  color: #e8edf4;
 }
 
 .enemy-team-preview-head span {
@@ -1351,10 +1342,6 @@ dialog::backdrop {
   line-height: 1.35;
 }
 
-.enemy-team-preview .lineup-chip > span b {
-  color: #d6b76f;
-  font-weight: 800;
-}
 
 .enemy-more-teams {
   margin-top: 10px;

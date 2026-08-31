@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.13";
+const APP_VERSION = "1.6.14";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -899,11 +899,9 @@ function generalTopMeta(general) {
 
 function renderEnemyTeamPreview(observation, index) {
   const generals = latestGenerals(observation);
-  const leader = generals.find((item) => item.slot === 1)?.general_name || "大将未確認";
   return `
     <div class="enemy-team-preview">
       <div class="enemy-team-preview-head">
-        <strong>${escapeHtml(leader)}大将</strong>
         <span>${escapeHtml(relativeTime(observation?.observed_at))}</span>
       </div>
       <div class="lineup-summary">
@@ -915,8 +913,8 @@ function renderEnemyTeamPreview(observation, index) {
                 <strong>${escapeHtml(general?.general_name || "未確認")}</strong>
                 <span>${escapeHtml(generalTopMeta(general))}</span>
               </div>
-              <span><b>第1</b> ${escapeHtml(general?.tactic_1 || "不明")}</span>
-              <span><b>第2</b> ${escapeHtml(general?.tactic_2 || "不明")}</span>
+              <span>第1 ${escapeHtml(general?.tactic_1 || "不明")}</span>
+              <span>第2 ${escapeHtml(general?.tactic_2 || "不明")}</span>
             </div>`;
           })
           .join("")}
