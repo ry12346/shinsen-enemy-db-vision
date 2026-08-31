@@ -1266,3 +1266,106 @@ dialog::backdrop {
 .review-shell .bottom-nav {
   display: none !important;
 }
+
+/* v1.6.13: トップ一覧で複数部隊を比較できるよう、情報密度を上げつつスマホでは戦法名を省略しない。 */
+.enemy-card-meta {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 52%;
+}
+
+.enemy-card-counts {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.enemy-team-preview {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.enemy-team-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.enemy-team-preview-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  color: #e8edf4;
+}
+
+.enemy-team-preview-head span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.enemy-team-preview .lineup-summary {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 0;
+}
+
+.enemy-team-preview .lineup-chip {
+  padding: 8px 9px;
+}
+
+.enemy-team-preview .lineup-chip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.enemy-team-preview .lineup-chip-head strong {
+  min-width: 0;
+  font-size: 0.84rem;
+}
+
+.enemy-team-preview .lineup-chip-head span {
+  flex: 0 0 auto;
+  margin-top: 0;
+  color: #c9d2de;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.enemy-team-preview .lineup-chip > span {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+.enemy-team-preview .lineup-chip > span b {
+  color: #d6b76f;
+  font-weight: 800;
+}
+
+.enemy-more-teams {
+  margin-top: 10px;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+@media (min-width: 760px) {
+  .enemy-team-preview .lineup-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

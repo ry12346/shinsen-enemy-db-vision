@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.12";
+const APP_VERSION = "1.6.13";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -877,6 +877,53 @@ function latestGenerals(latest) {
   return [...(latest?.observation_generals ?? [])].sort((a, b) => a.slot - b.slot);
 }
 
+function generalTopMeta(general) {
+  const levelRaw = general?.general_level;
+  const levelNumber = levelRaw === null || levelRaw === undefined || levelRaw === ""
+    ? null
+    : Number(levelRaw);
+  const levelText = Number.isFinite(levelNumber) && levelNumber > 0
+    ? `Lv${Math.trunc(levelNumber)}`
+    : "Lv不明";
+
+  const limitRaw = general?.red_level;
+  const limitNumber = limitRaw === null || limitRaw === undefined || limitRaw === ""
+    ? null
+    : Number(limitRaw);
+  const limitText = Number.isFinite(limitNumber) && limitNumber >= 0 && limitNumber <= 5
+    ? `${Math.trunc(limitNumber)}凸`
+    : "凸不明";
+
+  return `${levelText}・${limitText}`;
+}
+
+function renderEnemyTeamPreview(observation, index) {
+  const generals = latestGenerals(observation);
+  const leader = generals.find((item) => item.slot === 1)?.general_name || "大将未確認";
+  return `
+    <div class="enemy-team-preview">
+      <div class="enemy-team-preview-head">
+        <strong>${escapeHtml(leader)}大将</strong>
+        <span>${escapeHtml(relativeTime(observation?.observed_at))}</span>
+      </div>
+      <div class="lineup-summary">
+        ${[1, 2, 3]
+          .map((slot) => {
+            const general = generals.find((item) => item.slot === slot);
+            return `<div class="lineup-chip">
+              <div class="lineup-chip-head">
+                <strong>${escapeHtml(general?.general_name || "未確認")}</strong>
+                <span>${escapeHtml(generalTopMeta(general))}</span>
+              </div>
+              <span><b>第1</b> ${escapeHtml(general?.tactic_1 || "不明")}</span>
+              <span><b>第2</b> ${escapeHtml(general?.tactic_2 || "不明")}</span>
+            </div>`;
+          })
+          .join("")}
+      </div>
+    </div>`;
+}
+
 async function renderEnemies() {
   app.innerHTML = pageHtml({
     title: "敵部隊一覧",
@@ -933,7 +980,20 @@ function renderEnemyListBody(errorMessage = "") {
       ${state.enemies
         .map((enemy) => {
           const latest = enemy.latest;
-          const generals = latestGenerals(latest);
+          const teams = Array.isArray(enemy.latestTeams) && enemy.latestTeams.length
+            ? enemy.latestTeams.slice(0, 2)
+            : latest
+              ? [latest]
+              : [];
+          const teamCount = Number.isFinite(Number(enemy.teamCount))
+            ? Number(enemy.teamCount)
+            : teams.length;
+          const observationCount = Number.isFinite(Number(enemy.observationCount))
+            ? Number(enemy.observationCount)
+            : latest
+              ? 1
+              : 0;
+
           return `
             <button type="button" class="enemy-card" data-action="open-enemy" data-enemy-id="${escapeAttr(enemy.id)}">
               <div class="enemy-card-top">
@@ -941,21 +1001,20 @@ function renderEnemyListBody(errorMessage = "") {
                   <strong>${escapeHtml(enemy.name)}</strong>
                   <span>${escapeHtml(enemy.groupName || "所属不明")}</span>
                 </div>
-                <span class="badge ${latest ? completenessBadgeClass(latest.completeness) : ""}">${latest ? relativeTime(latest.observed_at) : "編成なし"}</span>
+                ${
+                  latest
+                    ? `<div class="enemy-card-meta">
+                        <span class="badge">${escapeHtml(relativeTime(latest.observed_at))}</span>
+                        <span class="badge ${completenessBadgeClass(latest.completeness)}">${escapeHtml(completenessLabel(latest.completeness))}</span>
+                      </div>`
+                    : `<span class="badge">編成なし</span>`
+                }
               </div>
               ${
                 latest
-                  ? `<div class="badge-row" style="margin-top:9px">
-                      <span class="badge ${completenessBadgeClass(latest.completeness)}">${completenessLabel(latest.completeness)}</span>
-                    </div>
-                    <div class="lineup-summary">
-                      ${[1, 2, 3]
-                        .map((slot) => {
-                          const general = generals.find((item) => item.slot === slot);
-                          return `<div class="lineup-chip"><strong>${escapeHtml(general?.general_name || "未確認")}</strong><span>第1：${escapeHtml(general?.tactic_1 || "不明")}</span><span>第2：${escapeHtml(general?.tactic_2 || "不明")}</span></div>`;
-                        })
-                        .join("")}
-                    </div>`
+                  ? `<div class="enemy-card-counts">${teamCount}部隊・観測${observationCount}件</div>
+                    ${teams.map((team, index) => renderEnemyTeamPreview(team, index)).join("")}
+                    ${teamCount > teams.length ? `<div class="enemy-more-teams">ほか${teamCount - teams.length}部隊は詳細で確認 →</div>` : ""}`
                   : `<p class="muted" style="margin:12px 0 0">観測編成はまだありません。</p>`
               }
             </button>`;
