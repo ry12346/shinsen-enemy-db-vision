@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.11";
+const APP_VERSION = "1.6.12";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -952,7 +952,7 @@ function renderEnemyListBody(errorMessage = "") {
                       ${[1, 2, 3]
                         .map((slot) => {
                           const general = generals.find((item) => item.slot === slot);
-                          return `<div class="lineup-chip"><strong>${escapeHtml(general?.general_name || "未確認")}</strong><span>${escapeHtml(general?.tactic_1 || general?.inherent_tactic || "戦法不明")}</span></div>`;
+                          return `<div class="lineup-chip"><strong>${escapeHtml(general?.general_name || "未確認")}</strong><span>第1：${escapeHtml(general?.tactic_1 || "不明")}</span><span>第2：${escapeHtml(general?.tactic_2 || "不明")}</span></div>`;
                         })
                         .join("")}
                     </div>`

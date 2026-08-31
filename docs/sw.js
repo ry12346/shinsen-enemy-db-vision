@@ -1,9 +1,9 @@
-const CACHE_NAME = "shinsen-enemy-db-v27-frontend-v1611";
+const CACHE_NAME = "shinsen-enemy-db-v28-frontend-v1612";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=1.6.11",
-  "./app.js?v=1.6.11",
+  "./styles.css?v=1.6.12",
+  "./app.js?v=1.6.12",
   "./config.js",
   "./manifest.webmanifest",
   "./robots.txt",
