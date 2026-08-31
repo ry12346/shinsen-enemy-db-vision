@@ -1356,3 +1356,72 @@ dialog::backdrop {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+
+/* v1.6.15: 詳細画面は同一3武将の観測を部隊単位にまとめ、最新編成を常時表示する。 */
+.enemy-detail-team-list {
+  display: grid;
+  gap: 16px;
+}
+
+.enemy-detail-team {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.enemy-detail-team:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.enemy-detail-team-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.enemy-detail-team-head > div {
+  min-width: 0;
+}
+
+.enemy-detail-team-head strong {
+  display: block;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.enemy-detail-team-head small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.enemy-detail-team-head > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.team-history-details {
+  margin-top: 2px;
+}
+
+.team-history-details > summary {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.team-history-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.team-history-list .observation-card {
+  background: rgba(16, 23, 34, 0.65);
+}

@@ -1,4 +1,4 @@
-const APP_VERSION = "1.6.14";
+const APP_VERSION = "1.6.15";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -1208,13 +1208,94 @@ async function saveEditedObservation() {
   }
 }
 
-function observationCard(observation) {
+function observationTeamIdentity(observation) {
+  const generals = [...(observation?.observation_generals ?? [])].sort(
+    (a, b) => Number(a.slot) - Number(b.slot),
+  );
+  const leader = String(
+    generals.find((item) => Number(item.slot) === 1)?.general_name ?? "",
+  ).replace(/\s+/g, "").trim();
+  const deputies = [2, 3]
+    .map((slot) => String(
+      generals.find((item) => Number(item.slot) === slot)?.general_name ?? "",
+    ).replace(/\s+/g, "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ja"));
+
+  // 3武将すべて判明している場合だけ自動的に同一部隊へまとめる。
+  // 不完全な観測を誤って別部隊と統合しないよう、欠損時は観測IDを含める。
+  if (!leader || deputies.length !== 2) {
+    return `incomplete:${observation?.id ?? Math.random().toString(36).slice(2)}`;
+  }
+  return `${leader}|${deputies[0]}|${deputies[1]}`;
+}
+
+function groupEnemyObservations(observations) {
+  const groups = new Map();
+  const sorted = [...(observations ?? [])].sort(
+    (a, b) => new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime(),
+  );
+
+  for (const observation of sorted) {
+    const key = observation.teamKey || observationTeamIdentity(observation);
+    const group = groups.get(key) ?? { key, observations: [] };
+    group.observations.push(observation);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      latest: group.observations[0] ?? null,
+      past: group.observations.slice(1),
+      observationCount: group.observations.length,
+    }))
+    .sort(
+      (a, b) => new Date(b.latest?.observed_at ?? 0).getTime() - new Date(a.latest?.observed_at ?? 0).getTime(),
+    );
+}
+
+function teamDisplayName(observation) {
+  const generals = latestGenerals(observation);
+  return [1, 2, 3]
+    .map((slot) => generals.find((item) => Number(item.slot) === slot)?.general_name || "未確認")
+    .join(" / ");
+}
+
+function renderObservationTeam(group) {
+  const latest = group?.latest;
+  if (!latest) return "";
+  const past = group.past ?? [];
+  return `
+    <section class="enemy-detail-team">
+      <div class="enemy-detail-team-head">
+        <div>
+          <strong>${escapeHtml(teamDisplayName(latest))}</strong>
+          <small>最終観測：${escapeHtml(relativeTime(latest.observed_at))}</small>
+        </div>
+        <span>${group.observationCount}件</span>
+      </div>
+      ${observationCard(latest, { latest: true })}
+      ${
+        past.length
+          ? `<details class="team-history-details">
+              <summary>過去の観測 ${past.length}件</summary>
+              <div class="team-history-list">
+                ${past.map((observation) => observationCard(observation)).join("")}
+              </div>
+            </details>`
+          : ""
+      }
+    </section>`;
+}
+
+function observationCard(observation, options = {}) {
   const generals = [...(observation.observation_generals ?? [])].sort((a, b) => a.slot - b.slot);
   return `
     <article class="observation-card">
       <div class="observation-header">
         <div>
-          <strong>${escapeHtml(formatFullDateTime(observation.observed_at))}</strong>
+          <strong>${options.latest ? "最新観測・" : ""}${escapeHtml(formatFullDateTime(observation.observed_at))}</strong>
           <small style="display:block;margin-top:3px">登録：${escapeHtml(observation.createdByName || "不明")}</small>
         </div>
         <div class="badge-row" style="justify-content:flex-end">
@@ -1251,6 +1332,20 @@ function observationCard(observation) {
 function renderEnemyDetail() {
   const enemy = state.currentEnemy;
   if (!enemy) return;
+
+  const teams = Array.isArray(enemy.teams) && enemy.teams.length
+    ? enemy.teams.map((team) => ({
+        ...team,
+        latest: team.latest ?? team.observations?.[0] ?? null,
+        observations: team.observations ?? [],
+        past: team.past ?? (team.observations ?? []).slice(1),
+        observationCount: Number(team.observationCount) || (team.observations ?? []).length,
+      }))
+    : groupEnemyObservations(enemy.observations ?? []);
+  const observationCount = Number.isFinite(Number(enemy.observationCount))
+    ? Number(enemy.observationCount)
+    : enemy.observations?.length ?? 0;
+
   app.innerHTML = pageHtml({
     title: enemy.name,
     subtitle: enemy.groupName || "所属不明",
@@ -1259,14 +1354,17 @@ function renderEnemyDetail() {
     content: `
       <section class="page-content">
         ${enemy.memo ? `<div class="notice info">${escapeHtml(enemy.memo)}</div>` : ""}
-        <div class="card">
+        <div class="card enemy-detail-summary">
           <div class="card-header">
-            <div><h2>観測履歴</h2><small>${enemy.observations?.length ?? 0}件</small></div>
+            <div>
+              <h2>確認済み部隊</h2>
+              <small>${teams.length}部隊・観測${observationCount}件</small>
+            </div>
           </div>
-          <div class="observation-list">
+          <div class="enemy-detail-team-list">
             ${
-              enemy.observations?.length
-                ? enemy.observations.map(observationCard).join("")
+              teams.length
+                ? teams.map(renderObservationTeam).join("")
                 : `<div class="empty-state"><span>観測履歴はありません。</span></div>`
             }
           </div>
