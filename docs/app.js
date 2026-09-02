@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.1";
+const APP_VERSION = "1.7.2";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -162,12 +162,57 @@ function portraitAndroidPhoneOcrProfile() {
   };
 }
 
-function portraitGameOcrProfile() {
+function sampleDarkPixelRatio(image, rects) {
+  const sampleSize = 120;
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleSize;
+  canvas.height = sampleSize;
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!context) return 0;
+
+  let darkPixels = 0;
+  let totalPixels = 0;
+  rects.forEach((rect) => {
+    const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
+    const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
+    const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
+    const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
+    const sw = Math.max(1, ex - sx);
+    const sh = Math.max(1, ey - sy);
+    context.clearRect(0, 0, sampleSize, sampleSize);
+    context.drawImage(image, sx, sy, sw, sh, 0, 0, sampleSize, sampleSize);
+    const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const r = pixels[offset];
+      const g = pixels[offset + 1];
+      const b = pixels[offset + 2];
+      const luma = r * 0.299 + g * 0.587 + b * 0.114;
+      const chroma = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
+      totalPixels += 1;
+      if (luma < 150 && chroma < 120) darkPixels += 1;
+    }
+  });
+  return totalPixels ? darkPixels / totalPixels : 0;
+}
+
+function detectGameDetailLayout(image, orientation) {
+  const regions = orientation === "portrait"
+    ? [makeRect(0.05, 0.47, 0.49, 0.69), makeRect(0.53, 0.95, 0.49, 0.69)]
+    : [makeRect(0.04, 0.45, 0.63, 0.82), makeRect(0.55, 0.96, 0.63, 0.82)];
+  const darkRatio = sampleDarkPixelRatio(image, regions);
+  const threshold = orientation === "portrait" ? 0.017 : 0.015;
+  return {
+    mode: darkRatio >= threshold ? "open" : "closed",
+    darkRatio,
+  };
+}
+
+function portraitGameOpenOcrProfile() {
   const profile = portraitPhoneOcrProfile();
   return {
     ...profile,
     id: "portrait-game-fields-v4",
-    // ゲーム内保存画像はロゴ帯の分だけ部隊欄が下へ寄る。
+    // 戦法詳細を開いたゲーム内保存画像では、各欄が下へ寄る従来レイアウトを使う。
     rows: {
       name: [0.283, 0.311],
       level: [0.304, 0.326],
@@ -175,6 +220,24 @@ function portraitGameOcrProfile() {
       inherent: [0.346, 0.37],
       tactic1: [0.432, 0.458],
       tactic2: [0.52, 0.546],
+    },
+  };
+}
+
+function portraitGameClosedOcrProfile() {
+  const profile = portraitPhoneOcrProfile();
+  return {
+    ...profile,
+    id: "portrait-game-fields-v5",
+    // 戦法詳細を閉じたゲーム内スクショでは、戦法ボタンが大きく上へ詰まる。
+    // Android / iPhone の保存画像で共通に読める帯へ合わせる。
+    rows: {
+      name: [0.266, 0.298],
+      level: [0.301, 0.326],
+      red: [0.303, 0.323],
+      inherent: [0.246, 0.275],
+      tactic1: [0.336, 0.364],
+      tactic2: [0.367, 0.396],
     },
   };
 }
@@ -219,7 +282,7 @@ function landscapePhoneOcrProfile() {
   };
 }
 
-function landscapeGameOcrProfile() {
+function landscapeGameOpenOcrProfile() {
   return {
     id: "landscape-game-fields-v4",
     meta: {
@@ -250,25 +313,75 @@ function landscapeGameOcrProfile() {
       red: [0.425, 0.465],
       inherent: [0.545, 0.605],
       tactic1: [0.695, 0.755],
-      // 横画面のゲーム内スクショでは第2戦法がロゴで隠れるため、切り出さない。
       tactic2: null,
     },
     jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
   };
 }
 
-function getOcrProfile(file) {
+function landscapeGameClosedOcrProfile() {
+  return {
+    id: "landscape-game-fields-v5",
+    meta: {
+      left: {
+        group: makeRect(0.10, 0.34, 0.08, 0.145),
+        player: makeRect(0.36, 0.465, 0.08, 0.145),
+      },
+      right: {
+        group: makeRect(0.65, 0.90, 0.08, 0.145),
+        player: makeRect(0.515, 0.64, 0.08, 0.145),
+      },
+    },
+    columns: {
+      left: [
+        [0.165, 0.253],
+        [0.255, 0.343],
+        [0.345, 0.433],
+      ],
+      right: [
+        [0.555, 0.643],
+        [0.645, 0.733],
+        [0.735, 0.823],
+      ],
+    },
+    rows: {
+      name: [0.445, 0.503],
+      level: [0.493, 0.546],
+      red: [0.495, 0.538],
+      inherent: [0.404, 0.458],
+      tactic1: [0.579, 0.641],
+      tactic2: [0.667, 0.729],
+    },
+    jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
+  };
+}
+
+function getOcrProfile(file, image = null) {
   if (file.orientation === "portrait") {
-    if (file.captureType === "game") return portraitGameOcrProfile();
+    if (file.captureType === "game") {
+      const detailLayout = image ? detectGameDetailLayout(image, "portrait") : { mode: "open", darkRatio: 1 };
+      file.gameDetailLayout = detailLayout.mode;
+      file.gameDetailDarkRatio = detailLayout.darkRatio;
+      return detailLayout.mode === "closed"
+        ? portraitGameClosedOcrProfile()
+        : portraitGameOpenOcrProfile();
+    }
     if (isTallAndroidPortraitPhone(file)) return portraitAndroidPhoneOcrProfile();
     return portraitPhoneOcrProfile();
   }
-  if (file.captureType === "game") return landscapeGameOcrProfile();
+  if (file.captureType === "game") {
+    const detailLayout = image ? detectGameDetailLayout(image, "landscape") : { mode: "open", darkRatio: 1 };
+    file.gameDetailLayout = detailLayout.mode;
+    file.gameDetailDarkRatio = detailLayout.darkRatio;
+    return detailLayout.mode === "closed"
+      ? landscapeGameClosedOcrProfile()
+      : landscapeGameOpenOcrProfile();
+  }
   return landscapePhoneOcrProfile();
 }
 
-function buildOcrFieldRows(file) {
-  const profile = getOcrProfile(file);
+function buildOcrFieldRows(file, image = null) {
+  const profile = getOcrProfile(file, image);
   const side = file.enemySide === "left" ? "left" : "right";
   const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
   const rows = [
@@ -441,12 +554,12 @@ function detectRedLevels(image, file, profile) {
 }
 
 async function buildOcrSheet(file) {
-  const { profile, rows } = buildOcrFieldRows(file);
+  const image = await loadImage(file.previewUrl);
+  const { profile, rows } = buildOcrFieldRows(file, image);
   const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`;
   if (file.ocrPrepared?.cacheKey === cacheKey) return file.ocrPrepared;
 
   if (file.ocrPrepared?.previewUrl) URL.revokeObjectURL(file.ocrPrepared.previewUrl);
-  const image = await loadImage(file.previewUrl);
   const height =
     OCR_SHEET_MARGIN * 2 +
     OCR_SHEET_ROW_HEIGHT * OCR_FIELD_KEYS.length +
@@ -509,6 +622,8 @@ async function buildOcrSheet(file) {
     redLevels: redLevelAnalysis.levels,
     redLevelConfidence: redLevelAnalysis.confidence,
     redLevelSource: redLevelAnalysis.source,
+    gameDetailLayout: file.gameDetailLayout || "",
+    gameDetailDarkRatio: Number(file.gameDetailDarkRatio || 0),
   };
   file.ocrPrepared = prepared;
   return prepared;
