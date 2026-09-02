@@ -1,4 +1,11 @@
-const APP_VERSION = "1.6.15";
+const APP_VERSION = "1.7.1";
+const INTEL_TITLE_LEVELS = Object.freeze([
+  { threshold: 30, label: "斥候" },
+  { threshold: 80, label: "間者" },
+  { threshold: 180, label: "忍頭" },
+  { threshold: 350, label: "御庭番" },
+  { threshold: 600, label: "諜報奉行" },
+]);
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/+esm";
 
 const config = window.SHINSEN_DB_CONFIG ?? {};
@@ -51,6 +58,7 @@ const state = {
   admin: null,
   currentSeason: "未設定",
   systemStatus: null,
+  intel: null,
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v4";
@@ -649,6 +657,54 @@ function hideLoading() {
   document.querySelectorAll("[data-loading-overlay]").forEach((node) => node.remove());
 }
 
+function showIntelSaveResult(intel, duplicate = false) {
+  document.querySelector("[data-intel-result-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.className = "intel-result-dialog";
+  dialog.dataset.intelResultDialog = "true";
+  const linked = Boolean(intel?.linked);
+  const breakdown = Array.isArray(intel?.breakdown) ? intel.breakdown : [];
+  const awarded = Number(intel?.awardedPoints || 0);
+  const eligible = Number(intel?.eligiblePoints || 0);
+  const confirmation = intel?.confirmation ?? null;
+  const confidenceChanged = confirmation &&
+    confirmation.previousConfidence?.label !== confirmation.currentConfidence?.label;
+
+  dialog.innerHTML = `
+    <div class="intel-result-card">
+      <div class="intel-result-head">
+        <div>
+          <small>${duplicate ? "重複確認" : "登録結果"}</small>
+          <h2>${duplicate ? "同じ画像は登録済みです" : (awarded > 0 ? `+${awarded}pt` : "登録しました")}</h2>
+        </div>
+        <button type="button" class="icon-button" data-action="dismiss-intel-result" aria-label="閉じる">×</button>
+      </div>
+      ${duplicate
+        ? `<div class="notice info">同じ画像のため、ポイント・確認回数とも加算しません。</div>`
+        : ""}
+      ${!duplicate && !linked && eligible > 0
+        ? `<div class="notice warning">Discord未連携のため、今回の${eligible}pt相当は加算されません。登録データ自体は通常どおり保存されています。</div>`
+        : ""}
+      ${breakdown.length
+        ? `<div class="intel-result-breakdown">${breakdown.map((item) => `
+            <div><span>${escapeHtml(item.label || item.eventType || "")}</span><strong>+${linked ? Number(item.points || 0) : 0}pt</strong></div>`).join("")}</div>`
+        : ""}
+      ${confirmation
+        ? `<div class="intel-confirmation-result">
+            <div><span>確認回数</span><strong>${Number(confirmation.previousCount || 0)} → ${Number(confirmation.currentCount || 0)}</strong></div>
+            <div><span>信頼度</span><strong>${escapeHtml(confirmation.previousConfidence?.label || "暫定")} → ${escapeHtml(confirmation.currentConfidence?.label || "暫定")}</strong></div>
+          </div>`
+        : ""}
+      ${!duplicate && linked
+        ? `<div class="intel-season-total"><span>今期合計</span><strong>${Number(intel?.seasonPoints || 0)}pt</strong></div>`
+        : ""}
+      <button type="button" class="primary-button" style="width:100%" data-action="dismiss-intel-result">閉じる</button>
+    </div>`;
+  document.body.appendChild(dialog);
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
 function activeUpload() {
   return state.uploadQueue.find((item) => item.id === state.activeUploadId) ?? null;
 }
@@ -661,6 +717,7 @@ function navHtml(active) {
   const items = [
     ["enemies", "⌕", "敵一覧"],
     ["upload", "＋", "戦報登録"],
+    ["intel", "◎", "諜報"],
     ["usage", "▥", "使用状況"],
     ["settings", "⚙", "設定"],
   ];
@@ -851,7 +908,17 @@ async function initialize() {
     }
 
     state.member = status.member;
-    await navigate("enemies");
+    const discordParams = new URLSearchParams(window.location.search);
+    const discordResult = discordParams.get("discord");
+    const discordMessage = discordParams.get("discord_message") || "";
+    if (discordResult) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash || ""}`);
+      await navigate("intel");
+      if (discordResult === "connected") showToast("Discord連携が完了しました。", "success");
+      else showToast(discordMessage || "Discord連携に失敗しました。", "error");
+    } else {
+      await navigate("enemies");
+    }
   } catch (error) {
     app.innerHTML = `
       <div class="center-screen">
@@ -868,6 +935,7 @@ async function navigate(view) {
   window.scrollTo({ top: 0, behavior: "auto" });
   if (view === "enemies") await renderEnemies();
   else if (view === "upload") renderUpload();
+  else if (view === "intel") await renderIntel();
   else if (view === "usage") await renderUsage();
   else if (view === "settings") await renderSettings();
   else if (view === "masters") await renderMasters();
@@ -897,11 +965,34 @@ function generalTopMeta(general) {
   return `${levelText}・${limitText}`;
 }
 
+function freshnessBadgeClass(freshness) {
+  const code = freshness?.code || "unknown";
+  if (code === "latest" || code === "active") return "success";
+  if (code === "aging") return "info";
+  if (code === "old") return "warning";
+  if (code === "recheck") return "danger";
+  return "";
+}
+
+function confidenceBadgeClass(confidence) {
+  const code = confidence?.code || "";
+  if (code === "high") return "success";
+  if (code === "confirmed") return "info";
+  return "";
+}
+
 function renderEnemyTeamPreview(observation, index) {
   const generals = latestGenerals(observation);
+  const intel = observation?.intel ?? {};
+  const freshness = intel.freshness ?? null;
+  const confidence = intel.confidence ?? null;
   return `
     <div class="enemy-team-preview">
       <div class="enemy-team-preview-head">
+        <div class="enemy-team-intel-badges">
+          ${freshness?.label ? `<span class="badge ${freshnessBadgeClass(freshness)}">${escapeHtml(freshness.label)}</span>` : ""}
+          ${confidence?.label ? `<span class="badge ${confidenceBadgeClass(confidence)}">${escapeHtml(confidence.label)}</span>` : ""}
+        </div>
         <span>${escapeHtml(relativeTime(observation?.observed_at))}</span>
       </div>
       <div class="lineup-summary">
@@ -1220,7 +1311,7 @@ function observationTeamIdentity(observation) {
       generals.find((item) => Number(item.slot) === slot)?.general_name ?? "",
     ).replace(/\s+/g, "").trim())
     .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, "ja"));
+    .sort();
 
   // 3武将すべて判明している場合だけ自動的に同一部隊へまとめる。
   // 不完全な観測を誤って別部隊と統合しないよう、欠損時は観測IDを含める。
@@ -1230,6 +1321,24 @@ function observationTeamIdentity(observation) {
   return `${leader}|${deputies[0]}|${deputies[1]}`;
 }
 
+function clientFreshnessInfo(observedAt) {
+  const time = new Date(observedAt ?? "").getTime();
+  if (!Number.isFinite(time)) return { code: "unknown", label: "不明", days: null };
+  const days = Math.max(0, Math.floor((Date.now() - time) / 86400000));
+  if (days <= 2) return { code: "latest", label: "最新", days };
+  if (days <= 7) return { code: "active", label: "有効", days };
+  if (days <= 14) return { code: "aging", label: "やや古い", days };
+  if (days <= 29) return { code: "old", label: "古い", days };
+  return { code: "recheck", label: "要再確認", days };
+}
+
+function clientConfidenceInfo(countRaw) {
+  const count = Math.max(0, Number(countRaw ?? 0) || 0);
+  if (count >= 3) return { code: "high", label: "高信頼", count };
+  if (count >= 2) return { code: "confirmed", label: "確認済", count };
+  return { code: "provisional", label: "暫定", count };
+}
+
 function groupEnemyObservations(observations) {
   const groups = new Map();
   const sorted = [...(observations ?? [])].sort(
@@ -1237,10 +1346,12 @@ function groupEnemyObservations(observations) {
   );
 
   for (const observation of sorted) {
-    const key = observation.teamKey || observationTeamIdentity(observation);
-    const group = groups.get(key) ?? { key, observations: [] };
+    const teamKey = observation.teamKey || observationTeamIdentity(observation);
+    const seasonName = observation.season_name || "未設定";
+    const groupKey = `${seasonName}::${teamKey}`;
+    const group = groups.get(groupKey) ?? { key: teamKey, seasonName, observations: [] };
     group.observations.push(observation);
-    groups.set(key, group);
+    groups.set(groupKey, group);
   }
 
   return [...groups.values()]
@@ -1249,6 +1360,12 @@ function groupEnemyObservations(observations) {
       latest: group.observations[0] ?? null,
       past: group.observations.slice(1),
       observationCount: group.observations.length,
+      intel: {
+        freshness: clientFreshnessInfo(group.observations[0]?.observed_at),
+        confidence: clientConfidenceInfo(group.observations.length),
+        discoveredAt: null,
+        discoveredByName: "匿名ユーザー",
+      },
     }))
     .sort(
       (a, b) => new Date(b.latest?.observed_at ?? 0).getTime() - new Date(a.latest?.observed_at ?? 0).getTime(),
@@ -1266,12 +1383,23 @@ function renderObservationTeam(group) {
   const latest = group?.latest;
   if (!latest) return "";
   const past = group.past ?? [];
+  const intel = group.intel ?? {};
+  const freshness = intel.freshness ?? clientFreshnessInfo(latest.observed_at);
+  const confidence = intel.confidence ?? clientConfidenceInfo(group.observationCount);
+  const discoveredBy = intel.discoveredByName || "匿名ユーザー";
+  const discoveredAt = intel.discoveredAt ? formatFullDateTime(intel.discoveredAt) : "記録なし";
   return `
     <section class="enemy-detail-team">
       <div class="enemy-detail-team-head">
         <div>
           <strong>${escapeHtml(teamDisplayName(latest))}</strong>
-          <small>最終観測：${escapeHtml(relativeTime(latest.observed_at))}</small>
+          <small>${escapeHtml(group.seasonName || latest.season_name || state.currentSeason)}・最終観測 ${escapeHtml(relativeTime(latest.observed_at))}</small>
+          <div class="team-intel-summary">
+            <span class="badge ${freshnessBadgeClass(freshness)}">${escapeHtml(freshness.label || "不明")}</span>
+            <span class="badge ${confidenceBadgeClass(confidence)}">信頼度：${escapeHtml(confidence.label || "暫定")}</span>
+            <span class="team-intel-text">確認 ${Number(confidence.count ?? group.observationCount ?? 0)}回</span>
+          </div>
+          <div class="team-discovery-line">初発見：${escapeHtml(discoveredBy)}${intel.discoveredAt ? `・${escapeHtml(discoveredAt)}` : ""}</div>
         </div>
         <span>${group.observationCount}件</span>
       </div>
@@ -2112,6 +2240,7 @@ async function saveObservation() {
   try {
     const response = await apiRequest("save_observation", { payload });
     const result = response.result ?? {};
+    const intelResult = result.intel ?? null;
     showToast(result.duplicate ? "同じ画像の戦報は登録済みです。" : "敵部隊を登録しました。", "success");
 
     if (file) {
@@ -2133,6 +2262,7 @@ async function saveObservation() {
     } else {
       await navigate("enemies");
     }
+    if (intelResult) showIntelSaveResult(intelResult, Boolean(result.duplicate));
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -2145,6 +2275,169 @@ async function sha256Text(value) {
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function rankingHtml(title, rows, currentContributorId = "") {
+  const data = Array.isArray(rows) ? rows : [];
+  return `
+    <div class="card intel-ranking-card">
+      <div class="card-header"><div><h2>${escapeHtml(title)}</h2><small>Discord連携済みユーザー</small></div></div>
+      ${
+        data.length
+          ? `<div class="intel-ranking-list">${data.slice(0, 15).map((row) => `
+              <div class="intel-ranking-row ${row.contributorId === currentContributorId ? "is-me" : ""}">
+                <span class="intel-rank">${row.rank}</span>
+                <strong>${escapeHtml(row.displayName || "不明")}</strong>
+                <span>${Number(row.points || 0)}pt</span>
+              </div>`).join("")}</div>`
+          : `<p class="muted" style="margin:0">まだポイント獲得者はいません。</p>`
+      }
+    </div>`;
+}
+
+async function renderIntel() {
+  app.innerHTML = pageHtml({
+    title: "諜報",
+    subtitle: `対象：${state.currentSeason || "未設定"}`,
+    activeNav: "intel",
+    content: `<section class="page-content"><div class="card"><p class="muted" style="margin:0">諜報情報を読み込み中...</p></div></section>`,
+  });
+  try {
+    const response = await apiRequest("intel_dashboard");
+    state.intel = response.intel ?? null;
+    state.currentSeason = state.intel?.currentSeason ?? state.currentSeason;
+    const subtitle = document.querySelector(".page-header-title small");
+    if (subtitle) subtitle.textContent = `対象：${state.currentSeason || "未設定"}`;
+    renderIntelBody();
+  } catch (error) {
+    showToast(error.message, "error");
+    const content = document.querySelector(".page-content");
+    if (content) content.innerHTML = `<div class="notice danger">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function intelTitleProgress(pointsRaw) {
+  const points = Math.max(0, Number(pointsRaw ?? 0) || 0);
+  let current = null;
+  let next = null;
+  for (const level of INTEL_TITLE_LEVELS) {
+    if (points >= level.threshold) current = level;
+    else {
+      next = level;
+      break;
+    }
+  }
+  if (!next) {
+    return {
+      current,
+      next: null,
+      percent: 100,
+      remaining: 0,
+      label: "最高位到達",
+    };
+  }
+  const floor = current?.threshold ?? 0;
+  const span = Math.max(1, next.threshold - floor);
+  const percent = Math.max(0, Math.min(100, Math.round(((points - floor) / span) * 100)));
+  return {
+    current,
+    next,
+    percent,
+    remaining: Math.max(0, next.threshold - points),
+    label: `${next.label}まで ${Math.max(0, next.threshold - points)}pt`,
+  };
+}
+
+function renderIntelBody() {
+  const content = document.querySelector(".page-content");
+  if (!content) return;
+  const intel = state.intel ?? {};
+  const linked = Boolean(intel.linked);
+  const contributor = intel.contributor ?? null;
+  const title = intel.title?.label || "称号なし";
+  const achievements = Array.isArray(intel.achievements) ? intel.achievements : [];
+  const feed = Array.isArray(intel.feed) ? intel.feed : [];
+  const recentPoints = Array.isArray(intel.recentPoints) ? intel.recentPoints : [];
+  const titleProgress = intelTitleProgress(intel.seasonPoints || 0);
+
+  content.innerHTML = `
+    ${
+      linked
+        ? `<div class="card intel-profile-card">
+            <div class="intel-profile-top">
+              <div>
+                <small>Discord連携</small>
+                <h2>${escapeHtml(contributor?.displayName || "連携ユーザー")}</h2>
+              </div>
+              <span class="badge success">${escapeHtml(title)}</span>
+            </div>
+            <div class="intel-point-stats">
+              <div><strong>${Number(intel.seasonPoints || 0)}</strong><span>今期pt</span></div>
+              <div><strong>${Number(intel.weeklyPoints || 0)}</strong><span>今週pt</span></div>
+            </div>
+            <div class="intel-title-status">
+              <div class="intel-title-status-head">
+                <span>${titleProgress.next ? "次の称号" : "称号進行"}</span>
+                <strong>${escapeHtml(titleProgress.label)}</strong>
+              </div>
+              <div class="intel-title-track" aria-label="称号進捗"><i style="width:${titleProgress.percent}%"></i></div>
+              <div class="intel-title-scale">
+                <span>${titleProgress.current ? `${escapeHtml(titleProgress.current.label)} ${titleProgress.current.threshold}pt` : "開始 0pt"}</span>
+                <span>${titleProgress.next ? `${escapeHtml(titleProgress.next.label)} ${titleProgress.next.threshold}pt` : "600pt+"}</span>
+              </div>
+            </div>
+            <div class="intel-title-ladder" aria-label="称号基準">
+              ${INTEL_TITLE_LEVELS.map((level) => `<span class="${Number(intel.seasonPoints || 0) >= level.threshold ? "reached" : ""}">${escapeHtml(level.label)} <b>${level.threshold}</b></span>`).join("")}
+            </div>
+            <button type="button" class="secondary-button intel-small-button" data-action="discord-disconnect">この端末のDiscord連携を解除</button>
+          </div>`
+        : `<div class="card intel-connect-card">
+            <div class="card-header"><div><h2>Discord未連携</h2><small>連携しなくても閲覧・OCR・登録できます</small></div></div>
+            <p class="muted">ポイント・ランキング・称号を利用する場合だけDiscordと連携してください。未連携中の登録にはポイントを後から遡って付与しません。</p>
+            ${intel.discordOAuthConfigured
+              ? `<button type="button" class="primary-button" style="width:100%" data-action="discord-connect">Discordと連携</button>`
+              : `<div class="notice warning">管理者によるDiscord OAuth設定がまだ完了していません。</div>`}
+          </div>`
+    }
+
+    <div class="card intel-feed-card">
+      <div class="card-header"><div><h2>最近の発見</h2><small>価値のある発見・変更だけを表示</small></div></div>
+      ${feed.length
+        ? `<div class="intel-feed-list">${feed.map((item) => `
+            <div class="intel-feed-item">
+              <span>${escapeHtml(relativeTime(item.created_at))}</span>
+              <p>${escapeHtml(item.message || "")}</p>
+            </div>`).join("")}</div>`
+        : `<p class="muted" style="margin:0">まだ発見フィードはありません。</p>`}
+    </div>
+
+    ${rankingHtml("今週のランキング", intel.weeklyRanking, contributor?.id || "")}
+    ${rankingHtml("今期のランキング", intel.seasonRanking, contributor?.id || "")}
+
+    ${linked ? `<div class="card intel-achievement-card">
+      <div class="card-header"><div><h2>実績</h2><small>Web上だけで保持</small></div></div>
+      <div class="intel-achievement-list">
+        ${achievements.map((item) => {
+          const current = Number(item.current || 0);
+          const target = Math.max(1, Number(item.target || 1));
+          const percent = Math.max(0, Math.min(100, Math.round((current / target) * 100)));
+          return `<div class="intel-achievement ${item.unlocked ? "unlocked" : ""}">
+            <div><strong>${item.unlocked ? "✓ " : ""}${escapeHtml(item.label)}</strong><span>${escapeHtml(item.description)}</span></div>
+            <small>${current} / ${target}</small>
+            <div class="intel-progress"><i style="width:${percent}%"></i></div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><h2>最近のポイント</h2><small>獲得理由の履歴</small></div></div>
+      ${recentPoints.length
+        ? `<div class="intel-point-history">${recentPoints.map((item) => `
+            <div><span>${escapeHtml(relativeTime(item.created_at))}</span><strong>${escapeHtml(item.description || item.event_type)}</strong><b>+${Number(item.points || 0)}pt</b></div>`).join("")}</div>`
+        : `<p class="muted" style="margin:0">まだポイント履歴はありません。</p>`}
+    </div>` : ""}
+  `;
 }
 
 async function renderUsage() {
@@ -2397,6 +2690,36 @@ function renderSettingsBody() {
           </div>`
         : ""
     }
+    ${
+      member?.role === "admin" && adminData
+        ? `<div class="card form-stack">
+            <div class="card-header"><div><h2>Discord連携・称号ロール</h2><small>${escapeHtml(state.currentSeason || "未設定")}用の設定</small></div></div>
+            ${!adminData.discordOAuthConfigured ? `<div class="notice warning">DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET が未設定です。</div>` : `<div class="notice success">Discord OAuth：設定済み</div>`}
+            ${!adminData.discordBotConfigured ? `<div class="notice warning">DISCORD_BOT_TOKEN が未設定のため、称号ロールの自動付与は行われません。</div>` : `<div class="notice success">Discord Bot：設定済み</div>`}
+            <div class="discord-redirect-box"><span>Discord Developer PortalのRedirect URI</span><code>${escapeHtml(adminData.discordRedirectUri || "")}</code></div>
+            <form class="form-stack" data-form="discord-config">
+              <label class="field"><span>DiscordサーバーID</span><input name="guildId" inputmode="numeric" maxlength="30" value="${escapeAttr(adminData.discordConfig?.guild_id || "")}" placeholder="例：123456789012345678" /></label>
+              <details>
+                <summary>称号ロールIDを手動設定</summary>
+                <div class="details-body form-stack">
+                  <label class="field"><span>斥候</span><input name="roleScoutId" inputmode="numeric" value="${escapeAttr(adminData.discordConfig?.role_scout_id || "")}" /></label>
+                  <label class="field"><span>間者</span><input name="roleSpyId" inputmode="numeric" value="${escapeAttr(adminData.discordConfig?.role_spy_id || "")}" /></label>
+                  <label class="field"><span>忍頭</span><input name="roleNinjaHeadId" inputmode="numeric" value="${escapeAttr(adminData.discordConfig?.role_ninja_head_id || "")}" /></label>
+                  <label class="field"><span>御庭番</span><input name="roleOniwabanId" inputmode="numeric" value="${escapeAttr(adminData.discordConfig?.role_oniwaban_id || "")}" /></label>
+                  <label class="field"><span>諜報奉行</span><input name="roleIntelCommissionerId" inputmode="numeric" value="${escapeAttr(adminData.discordConfig?.role_intel_commissioner_id || "")}" /></label>
+                </div>
+              </details>
+              <button type="submit" class="secondary-button">Discord設定を保存</button>
+            </form>
+            <button type="button" class="primary-button" style="width:100%" data-action="create-discord-roles" ${adminData.discordBotConfigured ? "" : "disabled"}>称号ロールを自動作成</button>
+            <div class="title-threshold-note">
+              <span>今期の称号基準</span>
+              <div>${INTEL_TITLE_LEVELS.map((level) => `<b>${escapeHtml(level.label)} ${level.threshold}pt</b>`).join("")}</div>
+            </div>
+            <p class="muted" style="margin:0">新シーズンではサーバーIDを設定し直し、「称号ロールを自動作成」を押せば5つのロールを用意できます。Botの「ロールの管理」権限と、Botロールが称号ロールより上にあることが必要です。</p>
+          </div>`
+        : ""
+    }
   `;
 }
 
@@ -2593,6 +2916,26 @@ document.addEventListener("submit", async (event) => {
       hideLoading();
     }
   }
+
+  if (form.dataset.form === "discord-config") {
+    showLoading("Discord設定を保存中...");
+    try {
+      await apiRequest("admin_discord_config_save", {
+        guildId: formData.get("guildId"),
+        roleScoutId: formData.get("roleScoutId"),
+        roleSpyId: formData.get("roleSpyId"),
+        roleNinjaHeadId: formData.get("roleNinjaHeadId"),
+        roleOniwabanId: formData.get("roleOniwabanId"),
+        roleIntelCommissionerId: formData.get("roleIntelCommissionerId"),
+      });
+      showToast("Discord設定を保存しました。", "success");
+      await refreshAdmin();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+  }
 });
 
 document.addEventListener("click", async (event) => {
@@ -2603,6 +2946,53 @@ document.addEventListener("click", async (event) => {
   if (action === "reload-app") window.location.reload();
   if (action === "navigate") await navigate(button.dataset.view);
   if (action === "back-to-settings") await navigate("settings");
+  if (action === "dismiss-intel-result") {
+    const dialog = button.closest("dialog");
+    if (dialog?.close) dialog.close();
+    dialog?.remove();
+  }
+  if (action === "discord-connect") {
+    showLoading("Discordへ移動中...");
+    try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}`;
+      const response = await apiRequest("discord_oauth_start", { returnUrl });
+      if (!response.authorizeUrl) throw new AppError("Discord認証URLを取得できませんでした。", "DISCORD_URL_MISSING");
+      window.location.assign(response.authorizeUrl);
+      return;
+    } catch (error) {
+      showToast(error.message, "error");
+      hideLoading();
+    }
+  }
+  if (action === "discord-disconnect") {
+    if (!window.confirm("このブラウザ/PWAのDiscord連携を解除しますか？既に獲得したポイントは残ります。")) return;
+    showLoading("Discord連携を解除中...");
+    try {
+      await apiRequest("discord_disconnect");
+      state.intel = null;
+      showToast("この端末のDiscord連携を解除しました。", "success");
+      await renderIntel();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+  }
+  if (action === "create-discord-roles") {
+    const guildInput = document.querySelector('[data-form="discord-config"] [name="guildId"]');
+    const guildId = guildInput?.value?.trim() || "";
+    if (!guildId) { showToast("DiscordサーバーIDを入力してください。", "error"); return; }
+    showLoading("Discord称号ロールを作成中...");
+    try {
+      await apiRequest("admin_discord_create_roles", { guildId });
+      showToast("称号ロールを作成・設定しました。", "success");
+      await refreshAdmin();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+  }
   if (action === "switch-master-type") {
     state.masterType = button.dataset.masterType === "tactic" ? "tactic" : "general";
     state.masterSearch = "";
