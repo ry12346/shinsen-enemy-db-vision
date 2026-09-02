@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.3";
+const APP_VERSION = "1.7.4";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -304,6 +304,30 @@ function resolveOcrProfile(file, image) {
     tactic2: layout.rows[2],
   };
   let meta = profile.meta;
+
+  // 閉状態でも武将カード本体の位置は端末ごとに異なる。
+  // 既存の開状態プロファイルは触らず、実画像でズレが確認できた閉状態だけ限定補正する。
+  if (file.captureType === "game" && file.orientation === "landscape" && isTallAndroidAspect(file)) {
+    // Android 20:9系・横ゲーム内保存・閉状態。
+    // v1.7.3では開状態の武将名/Lv/珠位置を流用していたため、カード下端を外していた。
+    rows.name = [0.443, 0.486];
+    rows.level = [0.515, 0.558];
+    rows.red = [0.475, 0.512];
+    meta = {
+      left: {
+        group: makeRect(0.10, 0.33, 0.108, 0.151),
+        player: makeRect(0.36, 0.46, 0.108, 0.151),
+      },
+      right: {
+        group: makeRect(0.65, 0.88, 0.108, 0.151),
+        player: makeRect(0.525, 0.64, 0.108, 0.151),
+      },
+    };
+  } else if (file.captureType !== "game" && file.orientation === "portrait" && !isTallAndroidPortraitPhone(file)) {
+    // iPhone系の縦スマホスクショ・閉状態。
+    // 武将名の下側に珠/兵力欄が入ると2文字名（例: お市）が崩れやすいため文字帯へ絞る。
+    rows.name = [0.258, 0.276];
+  }
 
   // Android縦のゲーム内保存画像だけは、上部メタ情報と武将名がiPhone系より上寄り/下寄りに異なる。
   // 閉状態かつ20:9系と確定した場合だけ限定補正し、従来の開状態やiPhoneには影響させない。
@@ -1570,7 +1594,6 @@ function renderObservationTeam(group) {
     <section class="enemy-detail-team">
       <div class="enemy-detail-team-head">
         <div>
-          <strong>${escapeHtml(teamDisplayName(latest))}</strong>
           <small>${escapeHtml(group.seasonName || latest.season_name || state.currentSeason)}・最終観測 ${escapeHtml(relativeTime(latest.observed_at))}</small>
           <div class="team-intel-summary">
             <span class="badge ${freshnessBadgeClass(freshness)}">${escapeHtml(freshness.label || "不明")}</span>
@@ -1629,7 +1652,7 @@ function observationCard(observation, options = {}) {
           .join("")}
         <div class="admin-actions" style="margin-top:14px">
           ${canEditObservation(observation) ? `<button type="button" class="secondary-button" style="min-height:44px" data-action="edit-observation" data-observation-id="${escapeAttr(observation.id)}">この記録を編集</button>` : ""}
-          ${state.member?.role === "admin" ? `<button type="button" class="danger-button" style="min-height:44px" data-action="delete-observation" data-observation-id="${escapeAttr(observation.id)}">この観測記録を削除</button>` : ""}
+          ${state.member?.role === "admin" ? `<button type="button" class="danger-button" style="min-height:44px" data-action="delete-observation" data-observation-id="${escapeAttr(observation.id)}">この記録を削除</button>` : ""}
         </div>
       </div>
     </article>`;
@@ -3297,7 +3320,7 @@ document.addEventListener("click", async (event) => {
   if (action === "save-observation") await saveObservation();
 
   if (action === "delete-observation") {
-    if (!window.confirm("この観測記録を削除しますか？元に戻せません。")) return;
+    if (!window.confirm("この記録を削除しますか？元に戻せません。")) return;
     showLoading("観測記録を削除中...");
     try {
       await apiRequest("admin_delete_observation", { observationId: button.dataset.observationId });
