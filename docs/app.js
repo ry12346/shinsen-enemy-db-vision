@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.4";
+const APP_VERSION = "1.7.5";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -304,14 +304,19 @@ function resolveOcrProfile(file, image) {
     tactic2: layout.rows[2],
   };
   let meta = profile.meta;
+  let jewel = profile.jewel;
+  let fieldCropTweaks = null;
 
   // 閉状態でも武将カード本体の位置は端末ごとに異なる。
   // 既存の開状態プロファイルは触らず、実画像でズレが確認できた閉状態だけ限定補正する。
   if (file.captureType === "game" && file.orientation === "landscape" && isTallAndroidAspect(file)) {
     // Android 20:9系・横ゲーム内保存・閉状態。
     // v1.7.3では開状態の武将名/Lv/珠位置を流用していたため、カード下端を外していた。
-    rows.name = [0.443, 0.486];
-    rows.level = [0.515, 0.558];
+    // 武将名はカード下端の白文字だけを残す。右端の長い武将名が欠けないようX方向は後段で拡張する。
+    rows.name = [0.443, 0.482];
+    // 将Lvはカード直下の兵科Lvではなく、武将カード内の「50」等を読む。
+    rows.level = [0.475, 0.515];
+    // 凸珠は同じカード下端帯。Android横では珠列が少し右寄りなので専用中心位置を使う。
     rows.red = [0.475, 0.512];
     meta = {
       left: {
@@ -322,6 +327,12 @@ function resolveOcrProfile(file, image) {
         group: makeRect(0.65, 0.88, 0.108, 0.151),
         player: makeRect(0.525, 0.64, 0.108, 0.151),
       },
+    };
+    jewel = { start: 0.57, step: 0.095, halfWidth: 0.04 };
+    fieldCropTweaks = {
+      // カード列の基準幅に対する割合。NAMEは端を少し拡張、LEVELは「50」だけへ絞る。
+      NAME: { leftExpand: 0.03, rightExpand: 0.10, mode: "dark-invert" },
+      LEVEL: { innerStart: 0.34, innerEnd: 0.66, mode: "dark-invert" },
     };
   } else if (file.captureType !== "game" && file.orientation === "portrait" && !isTallAndroidPortraitPhone(file)) {
     // iPhone系の縦スマホスクショ・閉状態。
@@ -354,6 +365,8 @@ function resolveOcrProfile(file, image) {
       id: closedProfileId(profile),
       meta,
       rows,
+      jewel,
+      fieldCropTweaks,
     },
     layout,
   };
@@ -479,6 +492,18 @@ function buildOcrFieldRows(file, image) {
     const add = (suffix, yRange, mode = "light") => {
       let cropX1 = x1;
       let cropX2 = x2;
+      const cropWidth = x2 - x1;
+      const tweak = profile.fieldCropTweaks?.[suffix] ?? null;
+      if (tweak) {
+        if (Number.isFinite(Number(tweak.innerStart)) && Number.isFinite(Number(tweak.innerEnd))) {
+          cropX1 = x1 + cropWidth * Number(tweak.innerStart);
+          cropX2 = x1 + cropWidth * Number(tweak.innerEnd);
+        } else {
+          cropX1 = x1 - cropWidth * Number(tweak.leftExpand ?? 0);
+          cropX2 = x2 + cropWidth * Number(tweak.rightExpand ?? 0);
+        }
+        if (tweak.mode) mode = tweak.mode;
+      }
       // 横画面の戦法ボタン左端にはランク記号(S/A等)があり、
       // その記号が先頭文字と混ざるとGoogle Visionが「一力」などを落とすことがある。
       // スマホ標準スクショではボタン本文だけを広めに残して切り出す。
@@ -641,7 +666,11 @@ async function buildOcrSheet(file) {
   const image = await loadImage(file.previewUrl);
   const { profile, rows, layout } = buildOcrFieldRows(file, image);
   const layoutKey = layout?.mode ?? "unknown";
-  const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${layoutKey}|${file.enemySide}|${file.captureType}`;
+  // v1.7.3/1.7.4では閉状態の切り出しを変えても同じOCRキャッシュキーだったため、
+  // 新しい切り出し画像を表示していても古いVision結果が返ることがあった。
+  // 開状態の既存キャッシュは維持し、閉状態だけリビジョンを付けて再解析する。
+  const layoutRevision = layoutKey === "closed" ? "closed-crop-v175" : "";
+  const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${layoutKey}|${layoutRevision}|${file.enemySide}|${file.captureType}`;
   if (file.ocrPrepared?.cacheKey === cacheKey) return file.ocrPrepared;
 
   if (file.ocrPrepared?.previewUrl) URL.revokeObjectURL(file.ocrPrepared.previewUrl);
@@ -678,9 +707,11 @@ async function buildOcrSheet(file) {
       { x: firstBox.x, y: boxY, w: firstBox.w, h: boxH },
       "none",
     );
-    const enhancedFilter = row.mode === "dark"
-      ? "grayscale(100%) contrast(205%) brightness(122%)"
-      : "grayscale(100%) contrast(190%) brightness(112%)";
+    const enhancedFilter = row.mode === "dark-invert"
+      ? "grayscale(100%) contrast(215%) brightness(118%) invert(100%)"
+      : row.mode === "dark"
+        ? "grayscale(100%) contrast(205%) brightness(122%)"
+        : "grayscale(100%) contrast(190%) brightness(112%)";
     drawCropIntoBox(
       context,
       image,
@@ -693,7 +724,7 @@ async function buildOcrSheet(file) {
   const redLevelAnalysis = detectRedLevels(image, file, profile);
   const blob = await canvasToBlob(canvas, "image/jpeg", 0.93);
   const analysisHash = await sha256Text(
-    `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${layout?.mode ?? "unknown"}|${file.enemySide}|${file.captureType}`,
+    `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${layout?.mode ?? "unknown"}|${layoutRevision}|${file.enemySide}|${file.captureType}`,
   );
   const prepared = {
     cacheKey,
