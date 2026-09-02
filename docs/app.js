@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.2";
+const APP_VERSION = "1.7.3";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -61,7 +61,7 @@ const state = {
   intel: null,
 };
 
-const OCR_SHEET_VERSION = "field-sheet-v4";
+const OCR_SHEET_VERSION = "field-sheet-v5-layout-auto";
 const OCR_SHEET_WIDTH = 1800;
 const OCR_SHEET_MARGIN = 24;
 const OCR_SHEET_ROW_HEIGHT = 96;
@@ -162,57 +162,185 @@ function portraitAndroidPhoneOcrProfile() {
   };
 }
 
-function sampleDarkPixelRatio(image, rects) {
-  const sampleSize = 120;
-  const canvas = document.createElement("canvas");
-  canvas.width = sampleSize;
-  canvas.height = sampleSize;
-  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
-  if (!context) return 0;
-
-  let darkPixels = 0;
-  let totalPixels = 0;
-  rects.forEach((rect) => {
-    const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
-    const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
-    const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
-    const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
-    const sw = Math.max(1, ex - sx);
-    const sh = Math.max(1, ey - sy);
-    context.clearRect(0, 0, sampleSize, sampleSize);
-    context.drawImage(image, sx, sy, sw, sh, 0, 0, sampleSize, sampleSize);
-    const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
-    for (let offset = 0; offset < pixels.length; offset += 4) {
-      const r = pixels[offset];
-      const g = pixels[offset + 1];
-      const b = pixels[offset + 2];
-      const luma = r * 0.299 + g * 0.587 + b * 0.114;
-      const chroma = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
-      totalPixels += 1;
-      if (luma < 150 && chroma < 120) darkPixels += 1;
-    }
-  });
-  return totalPixels ? darkPixels / totalPixels : 0;
+function isTallAndroidAspect(file) {
+  if (!file) return false;
+  const width = Number(file.width || 0);
+  const height = Number(file.height || 0);
+  if (!width || !height) return false;
+  return Math.max(width, height) / Math.min(width, height) >= 2.19;
 }
 
-function detectGameDetailLayout(image, orientation) {
-  const regions = orientation === "portrait"
-    ? [makeRect(0.05, 0.47, 0.49, 0.69), makeRect(0.53, 0.95, 0.49, 0.69)]
-    : [makeRect(0.04, 0.45, 0.63, 0.82), makeRect(0.55, 0.96, 0.63, 0.82)];
-  const darkRatio = sampleDarkPixelRatio(image, regions);
-  const threshold = orientation === "portrait" ? 0.017 : 0.015;
+function isWarmTacticPixel(r, g, b) {
+  return (
+    r > 145 &&
+    g > 115 &&
+    b > 65 &&
+    r - g > -5 &&
+    g - b > 5 &&
+    r + b - 2 * g < 80 &&
+    r - g < 90
+  );
+}
+
+function detectTacticButtonLayout(image, profile, orientation) {
+  if (!image || !profile?.columns) {
+    return { mode: "unknown", rows: [], spacing: null, confidence: 0 };
+  }
+
+  // 戦法ボタンの淡い金色は、詳細の開閉に関係なく共通している。
+  // 画像を縮小して横方向の金色画素率を調べ、戦法ボタン4段の実位置を直接検出する。
+  // これにより端末・縦横・ゲーム内/スマホの差を固定座標だけに依存させない。
+  const maxWidth = 900;
+  const scale = Math.min(1, maxWidth / image.naturalWidth);
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!context) return { mode: "unknown", rows: [], spacing: null, confidence: 0 };
+  context.drawImage(image, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+
+  const scanRange = orientation === "portrait" ? [0.315, 0.64] : [0.50, 0.93];
+  const threshold = 0.25;
+  const minSpan = orientation === "portrait" ? 0.006 : 0.018;
+  const xRanges = [
+    ...(profile.columns.left ?? []),
+    ...(profile.columns.right ?? []),
+  ];
+  const yStart = clamp(Math.floor(scanRange[0] * height), 0, height - 1);
+  const yEnd = clamp(Math.ceil(scanRange[1] * height), yStart + 1, height);
+  const scores = [];
+
+  for (let y = yStart; y < yEnd; y += 1) {
+    let warm = 0;
+    let total = 0;
+    for (const [rx1, rx2] of xRanges) {
+      const xStart = clamp(Math.floor(rx1 * width), 0, width - 1);
+      const xEnd = clamp(Math.ceil(rx2 * width), xStart + 1, width);
+      // 2pxおきで十分。端末上でも解析負荷を抑える。
+      for (let x = xStart; x < xEnd; x += 2) {
+        const offset = (y * width + x) * 4;
+        if (isWarmTacticPixel(pixels[offset], pixels[offset + 1], pixels[offset + 2])) warm += 1;
+        total += 1;
+      }
+    }
+    scores.push({ y: y / height, score: total ? warm / total : 0 });
+  }
+
+  const runs = [];
+  let current = [];
+  const flush = () => {
+    if (!current.length) return;
+    const span = current[current.length - 1].y - current[0].y;
+    if (span >= minSpan) {
+      const weight = current.reduce((sum, item) => sum + item.score, 0);
+      const center = weight
+        ? current.reduce((sum, item) => sum + item.y * item.score, 0) / weight
+        : (current[0].y + current[current.length - 1].y) / 2;
+      runs.push({
+        start: current[0].y,
+        end: current[current.length - 1].y,
+        center,
+        strength: Math.max(...current.map((item) => item.score)),
+      });
+    }
+    current = [];
+  };
+
+  for (const item of scores) {
+    if (item.score >= threshold) current.push(item);
+    else flush();
+  }
+  flush();
+
+  if (runs.length < 3) {
+    return { mode: "unknown", rows: [], spacing: null, confidence: 0, runs };
+  }
+
+  // 最初の3段は 固有 / 第1 / 第2。開状態では段間が大きく、閉状態では詰まる。
+  const firstThree = runs.slice(0, 3);
+  const spacing = (
+    (firstThree[1].center - firstThree[0].center) +
+    (firstThree[2].center - firstThree[1].center)
+  ) / 2;
+  const closedThreshold = orientation === "portrait" ? 0.06 : 0.09;
+  const mode = spacing < closedThreshold ? "closed" : "open";
+  const gapFromThreshold = Math.abs(spacing - closedThreshold);
+  const confidence = clamp(0.75 + Math.min(0.22, gapFromThreshold * 3), 0, 0.97);
+
+  const pad = orientation === "portrait" ? 0.004 : 0.008;
+  const rows = firstThree.map((run) => [
+    clamp(run.start - pad, 0, 1),
+    clamp(run.end + pad, 0, 1),
+  ]);
+
+  return { mode, rows, spacing, confidence, runs };
+}
+
+function closedProfileId(profile) {
+  const match = String(profile?.id ?? "").match(/^(.*-fields-v)(\d+)$/);
+  if (!match) return profile?.id ?? "";
+  return `${match[1]}${Number(match[2]) + 2}`;
+}
+
+function resolveOcrProfile(file, image) {
+  const profile = getOcrProfile(file);
+  const layout = detectTacticButtonLayout(image, profile, file.orientation);
+  file.tacticLayout = layout.mode;
+  file.tacticLayoutSpacing = layout.spacing;
+  file.tacticLayoutConfidence = layout.confidence;
+
+  // 開状態はv1.7.1までのプロファイルを一切変更しない。
+  if (layout.mode !== "closed" || layout.rows.length < 3) {
+    return { profile, layout };
+  }
+
+  const rows = {
+    ...profile.rows,
+    inherent: layout.rows[0],
+    tactic1: layout.rows[1],
+    tactic2: layout.rows[2],
+  };
+  let meta = profile.meta;
+
+  // Android縦のゲーム内保存画像だけは、上部メタ情報と武将名がiPhone系より上寄り/下寄りに異なる。
+  // 閉状態かつ20:9系と確定した場合だけ限定補正し、従来の開状態やiPhoneには影響させない。
+  if (file.captureType === "game" && file.orientation === "portrait" && isTallAndroidAspect(file)) {
+    meta = {
+      left: {
+        group: makeRect(0.03, 0.23, 0.105, 0.14),
+        player: makeRect(0.24, 0.505, 0.105, 0.14),
+      },
+      right: {
+        group: makeRect(0.54, 0.75, 0.105, 0.14),
+        player: makeRect(0.76, 0.99, 0.105, 0.14),
+      },
+    };
+    rows.name = [0.299, 0.322];
+  } else if (file.captureType === "game" && file.orientation === "portrait") {
+    // iPhone縦ゲーム内の閉状態でも状態表示「潰走」を避け、武将名の文字帯だけへ寄せる。
+    rows.name = [0.299, 0.322];
+  }
+
   return {
-    mode: darkRatio >= threshold ? "open" : "closed",
-    darkRatio,
+    profile: {
+      ...profile,
+      id: closedProfileId(profile),
+      meta,
+      rows,
+    },
+    layout,
   };
 }
 
-function portraitGameOpenOcrProfile() {
+function portraitGameOcrProfile() {
   const profile = portraitPhoneOcrProfile();
   return {
     ...profile,
     id: "portrait-game-fields-v4",
-    // 戦法詳細を開いたゲーム内保存画像では、各欄が下へ寄る従来レイアウトを使う。
+    // ゲーム内保存画像はロゴ帯の分だけ部隊欄が下へ寄る。
     rows: {
       name: [0.283, 0.311],
       level: [0.304, 0.326],
@@ -220,24 +348,6 @@ function portraitGameOpenOcrProfile() {
       inherent: [0.346, 0.37],
       tactic1: [0.432, 0.458],
       tactic2: [0.52, 0.546],
-    },
-  };
-}
-
-function portraitGameClosedOcrProfile() {
-  const profile = portraitPhoneOcrProfile();
-  return {
-    ...profile,
-    id: "portrait-game-fields-v5",
-    // 戦法詳細を閉じたゲーム内スクショでは、戦法ボタンが大きく上へ詰まる。
-    // Android / iPhone の保存画像で共通に読める帯へ合わせる。
-    rows: {
-      name: [0.266, 0.298],
-      level: [0.301, 0.326],
-      red: [0.303, 0.323],
-      inherent: [0.246, 0.275],
-      tactic1: [0.336, 0.364],
-      tactic2: [0.367, 0.396],
     },
   };
 }
@@ -282,7 +392,7 @@ function landscapePhoneOcrProfile() {
   };
 }
 
-function landscapeGameOpenOcrProfile() {
+function landscapeGameOcrProfile() {
   return {
     id: "landscape-game-fields-v4",
     meta: {
@@ -313,75 +423,25 @@ function landscapeGameOpenOcrProfile() {
       red: [0.425, 0.465],
       inherent: [0.545, 0.605],
       tactic1: [0.695, 0.755],
+      // 横画面のゲーム内スクショでは第2戦法がロゴで隠れるため、切り出さない。
       tactic2: null,
     },
     jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
   };
 }
 
-function landscapeGameClosedOcrProfile() {
-  return {
-    id: "landscape-game-fields-v5",
-    meta: {
-      left: {
-        group: makeRect(0.10, 0.34, 0.08, 0.145),
-        player: makeRect(0.36, 0.465, 0.08, 0.145),
-      },
-      right: {
-        group: makeRect(0.65, 0.90, 0.08, 0.145),
-        player: makeRect(0.515, 0.64, 0.08, 0.145),
-      },
-    },
-    columns: {
-      left: [
-        [0.165, 0.253],
-        [0.255, 0.343],
-        [0.345, 0.433],
-      ],
-      right: [
-        [0.555, 0.643],
-        [0.645, 0.733],
-        [0.735, 0.823],
-      ],
-    },
-    rows: {
-      name: [0.445, 0.503],
-      level: [0.493, 0.546],
-      red: [0.495, 0.538],
-      inherent: [0.404, 0.458],
-      tactic1: [0.579, 0.641],
-      tactic2: [0.667, 0.729],
-    },
-    jewel: { start: 0.5, step: 0.1, halfWidth: 0.035 },
-  };
-}
-
-function getOcrProfile(file, image = null) {
+function getOcrProfile(file) {
   if (file.orientation === "portrait") {
-    if (file.captureType === "game") {
-      const detailLayout = image ? detectGameDetailLayout(image, "portrait") : { mode: "open", darkRatio: 1 };
-      file.gameDetailLayout = detailLayout.mode;
-      file.gameDetailDarkRatio = detailLayout.darkRatio;
-      return detailLayout.mode === "closed"
-        ? portraitGameClosedOcrProfile()
-        : portraitGameOpenOcrProfile();
-    }
+    if (file.captureType === "game") return portraitGameOcrProfile();
     if (isTallAndroidPortraitPhone(file)) return portraitAndroidPhoneOcrProfile();
     return portraitPhoneOcrProfile();
   }
-  if (file.captureType === "game") {
-    const detailLayout = image ? detectGameDetailLayout(image, "landscape") : { mode: "open", darkRatio: 1 };
-    file.gameDetailLayout = detailLayout.mode;
-    file.gameDetailDarkRatio = detailLayout.darkRatio;
-    return detailLayout.mode === "closed"
-      ? landscapeGameClosedOcrProfile()
-      : landscapeGameOpenOcrProfile();
-  }
+  if (file.captureType === "game") return landscapeGameOcrProfile();
   return landscapePhoneOcrProfile();
 }
 
-function buildOcrFieldRows(file, image = null) {
-  const profile = getOcrProfile(file, image);
+function buildOcrFieldRows(file, image) {
+  const { profile, layout } = resolveOcrProfile(file, image);
   const side = file.enemySide === "left" ? "left" : "right";
   const visualColumns = side === "right" ? [2, 1, 0] : [0, 1, 2];
   const rows = [
@@ -420,7 +480,7 @@ function buildOcrFieldRows(file, image = null) {
     add("T2", profile.rows.tactic2, "light");
   }
 
-  return { profile, rows };
+  return { profile, rows, layout };
 }
 
 function drawCropIntoBox(context, image, rect, box, filter = "none") {
@@ -555,8 +615,9 @@ function detectRedLevels(image, file, profile) {
 
 async function buildOcrSheet(file) {
   const image = await loadImage(file.previewUrl);
-  const { profile, rows } = buildOcrFieldRows(file, image);
-  const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`;
+  const { profile, rows, layout } = buildOcrFieldRows(file, image);
+  const layoutKey = layout?.mode ?? "unknown";
+  const cacheKey = `${OCR_SHEET_VERSION}|${profile.id}|${layoutKey}|${file.enemySide}|${file.captureType}`;
   if (file.ocrPrepared?.cacheKey === cacheKey) return file.ocrPrepared;
 
   if (file.ocrPrepared?.previewUrl) URL.revokeObjectURL(file.ocrPrepared.previewUrl);
@@ -608,7 +669,7 @@ async function buildOcrSheet(file) {
   const redLevelAnalysis = detectRedLevels(image, file, profile);
   const blob = await canvasToBlob(canvas, "image/jpeg", 0.93);
   const analysisHash = await sha256Text(
-    `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${file.enemySide}|${file.captureType}`,
+    `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${layout?.mode ?? "unknown"}|${file.enemySide}|${file.captureType}`,
   );
   const prepared = {
     cacheKey,
@@ -622,8 +683,10 @@ async function buildOcrSheet(file) {
     redLevels: redLevelAnalysis.levels,
     redLevelConfidence: redLevelAnalysis.confidence,
     redLevelSource: redLevelAnalysis.source,
-    gameDetailLayout: file.gameDetailLayout || "",
-    gameDetailDarkRatio: Number(file.gameDetailDarkRatio || 0),
+    tacticLayout: layout?.mode ?? "unknown",
+    tacticLayoutSpacing: Number(layout?.spacing ?? 0),
+    tacticLayoutConfidence: Number(layout?.confidence ?? 0),
+    tacticRows: layout?.rows ?? [],
   };
   file.ocrPrepared = prepared;
   return prepared;
@@ -2269,6 +2332,7 @@ function renderReview() {
           state.rawOcrText
             ? `<details><summary>OCRの診断情報</summary><div class="details-body">
                 ${file?.ocrPrepared?.previewUrl ? `<button type="button" class="secondary-button" style="width:100%;margin-bottom:12px" data-action="open-ocr-image">OCR用に切り出した画像を確認</button>` : ""}
+                ${file?.ocrPrepared ? `<div class="notice info" style="margin-bottom:10px;font-size:.8rem">戦法レイアウト: ${escapeHtml(file.ocrPrepared.tacticLayout === "closed" ? "閉じ" : file.ocrPrepared.tacticLayout === "open" ? "開き" : "判定不能")} / OCRプロファイル: ${escapeHtml(file.ocrPrepared.profile)}</div>` : ""}
                 <pre class="raw-ocr">${escapeHtml(state.rawOcrText)}</pre>
               </div></details>`
             : ""
