@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.5";
+const APP_VERSION = "1.7.6";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -61,7 +61,7 @@ const state = {
   intel: null,
 };
 
-const OCR_SHEET_VERSION = "field-sheet-v5-layout-auto";
+const OCR_SHEET_VERSION = "field-sheet-v6-troop";
 const OCR_SHEET_WIDTH = 1800;
 const OCR_SHEET_MARGIN = 24;
 const OCR_SHEET_ROW_HEIGHT = 96;
@@ -89,6 +89,189 @@ const OCR_FIELD_KEYS = [
 
 function makeRect(x1, x2, y1, y2) {
   return { x1, x2, y1, y2 };
+}
+
+
+const TROOP_TYPES = Object.freeze([
+  { value: "infantry", label: "足軽" },
+  { value: "siege", label: "兵器" },
+  { value: "cavalry", label: "馬" },
+  { value: "bow", label: "弓" },
+  { value: "gun", label: "鉄砲" },
+]);
+
+// 各兵種アイコンを24x24の2値マスクとして保持する。
+// ユーザー提供の実画面から金色部分だけを抽出したテンプレートで、
+// Google Visionを追加で呼ばずブラウザ内だけで兵種を判定する。
+const TROOP_ICON_TEMPLATE_ROWS = Object.freeze({
+  infantry: "000000,000000,000000,1e0000,1f0000,1f8000,0fc000,07e000,03f000,01f000,00fc00,007f00,003e00,001e00,001e00,000180,0000c0,000060,000070,000038,00000c,000000,000000,000000",
+  bow: "000000,000000,000000,1c0000,1c0000,1c1f00,026000,018000,018000,024000,022100,041300,040e00,040e00,041e00,062000,066080,06c078,07007c,070070,060020,060000,000000,000000",
+  cavalry: "000000,000000,000000,002000,002000,003000,007e00,007f00,00ff00,00ff00,01ff00,03ff80,03fbc0,07f3fc,0ff3fc,1f03fc,0e03f8,0601f0,0001f0,0001e0,0001c0,000000,000000,000000",
+  gun: "000000,000000,000000,000000,000000,1c0000,3f0000,1fc000,0ffc00,03fe00,003f00,003f80,000fc0,0003e0,0001fc,0000be,00001e,00001e,00000e,00000e,000000,000000,000000,000000",
+  siege: "000000,000000,003c00,01fe00,03da00,071800,0f1800,1f9800,199800,187e00,307e00,3fff00,3fff80,307e0c,187e18,199998,1f99f8,0f18f0,0718e0,03dbc0,01ff80,003c00,000000,000000",
+});
+
+let troopIconTemplatesCache = null;
+
+function troopTypeLabel(value) {
+  return TROOP_TYPES.find((item) => item.value === value)?.label ?? "未確認";
+}
+
+function troopTypeOptions(value) {
+  const current = String(value ?? "");
+  return [
+    `<option value="" ${current === "" ? "selected" : ""}>未確認</option>`,
+    ...TROOP_TYPES.map((item) =>
+      `<option value="${item.value}" ${current === item.value ? "selected" : ""}>${item.label}</option>`
+    ),
+  ].join("");
+}
+
+function troopIconTemplates() {
+  if (troopIconTemplatesCache) return troopIconTemplatesCache;
+  const result = {};
+  for (const [type, encoded] of Object.entries(TROOP_ICON_TEMPLATE_ROWS)) {
+    const mask = new Uint8Array(24 * 24);
+    encoded.split(",").forEach((hex, y) => {
+      const bits = Number.parseInt(hex, 16).toString(2).padStart(24, "0");
+      for (let x = 0; x < 24; x += 1) mask[y * 24 + x] = bits[x] === "1" ? 1 : 0;
+    });
+    result[type] = mask;
+  }
+  troopIconTemplatesCache = result;
+  return result;
+}
+
+function troopHeaderGeometry(file) {
+  const side = file?.enemySide === "left" ? "left" : "right";
+  const portrait = file?.orientation === "portrait";
+  const game = file?.captureType === "game";
+  if (portrait) {
+    const cx = side === "left" ? 0.418 : 0.651;
+    const cy = game ? 0.177 : 0.205;
+    return {
+      icon: makeRect(cx - 0.025, cx + 0.025, cy - 0.014, cy + 0.014),
+      level: makeRect(cx - 0.012, cx + 0.075, cy - 0.016, cy + 0.017),
+    };
+  }
+  if (game) {
+    const cx = side === "left" ? 0.394 : 0.583;
+    const cy = 0.193;
+    return {
+      icon: makeRect(cx - 0.022, cx + 0.022, cy - 0.025, cy + 0.025),
+      level: makeRect(cx - 0.012, cx + 0.050, cy - 0.027, cy + 0.027),
+    };
+  }
+  const cx = side === "left" ? 0.365 : 0.552;
+  const cy = 0.165;
+  return {
+    icon: makeRect(cx - 0.022, cx + 0.022, cy - 0.025, cy + 0.025),
+    level: makeRect(cx - 0.012, cx + 0.052, cy - 0.027, cy + 0.027),
+  };
+}
+
+function goldMaskFromRect(image, rect) {
+  const sx = clamp(Math.round(rect.x1 * image.naturalWidth), 0, image.naturalWidth - 1);
+  const sy = clamp(Math.round(rect.y1 * image.naturalHeight), 0, image.naturalHeight - 1);
+  const ex = clamp(Math.round(rect.x2 * image.naturalWidth), sx + 1, image.naturalWidth);
+  const ey = clamp(Math.round(rect.y2 * image.naturalHeight), sy + 1, image.naturalHeight);
+  const sw = Math.max(1, ex - sx);
+  const sh = Math.max(1, ey - sy);
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!context) return null;
+  context.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+  const pixels = context.getImageData(0, 0, sw, sh).data;
+  const raw = new Uint8Array(sw * sh);
+  let minX = sw;
+  let minY = sh;
+  let maxX = -1;
+  let maxY = -1;
+  let count = 0;
+  for (let y = 0; y < sh; y += 1) {
+    for (let x = 0; x < sw; x += 1) {
+      const offset = (y * sw + x) * 4;
+      const r = pixels[offset];
+      const g = pixels[offset + 1];
+      const b = pixels[offset + 2];
+      const gold = r > 125 && g > 90 && b < 195 && r - b > 20 && g - b > 5 && r - g < 110;
+      if (!gold) continue;
+      raw[y * sw + x] = 1;
+      count += 1;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (count < 10 || maxX < minX || maxY < minY) return null;
+
+  const bw = maxX - minX + 1;
+  const bh = maxY - minY + 1;
+  const size = Math.max(bw, bh) + 4;
+  const offsetX = Math.floor((size - bw) / 2);
+  const offsetY = Math.floor((size - bh) / 2);
+  const normalized = new Uint8Array(24 * 24);
+  for (let y = 0; y < 24; y += 1) {
+    for (let x = 0; x < 24; x += 1) {
+      const squareX = Math.min(size - 1, Math.floor((x * size) / 24));
+      const squareY = Math.min(size - 1, Math.floor((y * size) / 24));
+      const sourceX = squareX - offsetX + minX;
+      const sourceY = squareY - offsetY + minY;
+      if (sourceX < minX || sourceX > maxX || sourceY < minY || sourceY > maxY) continue;
+      normalized[y * 24 + x] = raw[sourceY * sw + sourceX];
+    }
+  }
+  return normalized;
+}
+
+function shiftedMaskValue(mask, x, y, dx, dy) {
+  const sx = x - dx;
+  const sy = y - dy;
+  if (sx < 0 || sx >= 24 || sy < 0 || sy >= 24) return 0;
+  return mask[sy * 24 + sx];
+}
+
+function maskJaccard(a, b) {
+  let best = 0;
+  for (let dy = -2; dy <= 2; dy += 1) {
+    for (let dx = -2; dx <= 2; dx += 1) {
+      let intersection = 0;
+      let union = 0;
+      for (let y = 0; y < 24; y += 1) {
+        for (let x = 0; x < 24; x += 1) {
+          const av = a[y * 24 + x];
+          const bv = shiftedMaskValue(b, x, y, dx, dy);
+          if (av || bv) union += 1;
+          if (av && bv) intersection += 1;
+        }
+      }
+      if (union) best = Math.max(best, intersection / union);
+    }
+  }
+  return best;
+}
+
+function detectTroopType(image, file) {
+  const geometry = troopHeaderGeometry(file);
+  const mask = goldMaskFromRect(image, geometry.icon);
+  if (!mask) return { type: "", confidence: 0, scores: {} };
+  const scores = Object.entries(troopIconTemplates())
+    .map(([type, template]) => ({ type, score: maskJaccard(mask, template) }))
+    .sort((a, b) => b.score - a.score);
+  const best = scores[0] ?? { type: "", score: 0 };
+  const second = scores[1] ?? { score: 0 };
+  const margin = best.score - second.score;
+  if (best.score < 0.38 || margin < 0.045) {
+    return { type: "", confidence: Math.max(0, best.score), scores: Object.fromEntries(scores.map((item) => [item.type, item.score])) };
+  }
+  return {
+    type: best.type,
+    confidence: clamp(0.55 + best.score * 0.35 + margin * 0.35, 0, 0.98),
+    scores: Object.fromEntries(scores.map((item) => [item.type, item.score])),
+  };
 }
 
 function portraitPhoneOcrProfile() {
@@ -694,12 +877,24 @@ async function buildOcrSheet(file) {
     const y = OCR_SHEET_MARGIN + index * (OCR_SHEET_ROW_HEIGHT + OCR_SHEET_ROW_GAP);
     context.fillStyle = index % 2 === 0 ? "#ffffff" : "#fafafa";
     context.fillRect(0, y, canvas.width, OCR_SHEET_ROW_HEIGHT);
-    context.fillStyle = "#111827";
-    context.font = "700 28px system-ui, sans-serif";
-    context.fillText(row.key, 16, y + OCR_SHEET_ROW_HEIGHT / 2);
-
     const boxY = y + 6;
     const boxH = OCR_SHEET_ROW_HEIGHT - 12;
+    if (index === 0) {
+      // 既存17行の構造を変えず、GROUP行のラベル領域（既存パーサーが無視する左12%）へ
+      // 兵種Lvだけを追加する。これにより既存の武将/戦法OCRの行配置は維持される。
+      const troopLevelRect = troopHeaderGeometry(file).level;
+      drawCropIntoBox(
+        context,
+        image,
+        troopLevelRect,
+        { x: 6, y: boxY, w: OCR_SHEET_LABEL_WIDTH - 12, h: boxH },
+        "grayscale(100%) contrast(205%) brightness(120%)",
+      );
+    } else {
+      context.fillStyle = "#111827";
+      context.font = "700 28px system-ui, sans-serif";
+      context.fillText(row.key, 16, y + OCR_SHEET_ROW_HEIGHT / 2);
+    }
     drawCropIntoBox(
       context,
       image,
@@ -722,6 +917,7 @@ async function buildOcrSheet(file) {
   });
 
   const redLevelAnalysis = detectRedLevels(image, file, profile);
+  const troopTypeAnalysis = detectTroopType(image, file);
   const blob = await canvasToBlob(canvas, "image/jpeg", 0.93);
   const analysisHash = await sha256Text(
     `${file.hash}|${OCR_SHEET_VERSION}|${profile.id}|${layout?.mode ?? "unknown"}|${layoutRevision}|${file.enemySide}|${file.captureType}`,
@@ -738,6 +934,9 @@ async function buildOcrSheet(file) {
     redLevels: redLevelAnalysis.levels,
     redLevelConfidence: redLevelAnalysis.confidence,
     redLevelSource: redLevelAnalysis.source,
+    troopType: troopTypeAnalysis.type,
+    troopTypeConfidence: troopTypeAnalysis.confidence,
+    troopTypeScores: troopTypeAnalysis.scores,
     tacticLayout: layout?.mode ?? "unknown",
     tacticLayoutSpacing: Number(layout?.spacing ?? 0),
     tacticLayoutConfidence: Number(layout?.confidence ?? 0),
@@ -1178,6 +1377,19 @@ function latestGenerals(latest) {
   return [...(latest?.observation_generals ?? [])].sort((a, b) => a.slot - b.slot);
 }
 
+function observationTroopText(observation) {
+  const summary = observation?.report_summary && typeof observation.report_summary === "object"
+    ? observation.report_summary
+    : {};
+  const rawType = String(summary.troopType ?? "");
+  const rawLevel = summary.troopLevel;
+  const level = rawLevel === null || rawLevel === undefined || rawLevel === "" ? null : Number(rawLevel);
+  if (!rawType && level == null) return "";
+  const type = troopTypeLabel(rawType);
+  const levelText = Number.isFinite(level) && level >= 1 && level <= 10 ? ` Lv${Math.trunc(level)}` : "";
+  return `${type}${levelText}`;
+}
+
 function generalTopMeta(general) {
   const levelRaw = general?.general_level;
   const levelNumber = levelRaw === null || levelRaw === undefined || levelRaw === ""
@@ -1225,6 +1437,7 @@ function renderEnemyTeamPreview(observation, index) {
         <div class="enemy-team-intel-badges">
           ${freshness?.label ? `<span class="badge ${freshnessBadgeClass(freshness)}">${escapeHtml(freshness.label)}</span>` : ""}
           ${confidence?.label ? `<span class="badge ${confidenceBadgeClass(confidence)}">${escapeHtml(confidence.label)}</span>` : ""}
+          ${observationTroopText(observation) ? `<span class="badge info">${escapeHtml(observationTroopText(observation))}</span>` : ""}
         </div>
         <span>${escapeHtml(relativeTime(observation?.observed_at))}</span>
       </div>
@@ -1379,6 +1592,9 @@ function draftFromObservation(observation, enemy) {
     captureType: observation.capture_type ?? "unknown",
     enemySide: observation.enemy_side === "left" ? "left" : "right",
     summary: observation.report_summary && typeof observation.report_summary === "object" ? observation.report_summary : {},
+    troopType: observation.report_summary?.troopType ?? "",
+    troopLevel: observation.report_summary?.troopLevel ?? null,
+    troopConfidence: { type: 0, level: 0 },
     generals: [1, 2, 3].map((slot) => {
       const row = rows.find((item) => Number(item.slot) === slot) ?? {};
       return {
@@ -1454,6 +1670,14 @@ function renderObservationEdit() {
           </label>
         </div>
 
+        <div class="card form-stack">
+          <div class="card-header"><div><h2>部隊情報</h2><small>兵種と兵種Lv</small></div></div>
+          <div class="form-grid-2">
+            <label class="field"><span>兵種</span><select data-edit-path="troopType">${troopTypeOptions(draft.troopType)}</select></label>
+            <label class="field"><span>兵種Lv</span><input type="number" inputmode="numeric" min="1" max="10" data-edit-path="troopLevel" value="${escapeAttr(draft.troopLevel ?? "")}" placeholder="例 8" /></label>
+          </div>
+        </div>
+
         ${[1, 2, 3].map((slot) => {
           const general = generals.find((item) => Number(item.slot) === slot) ?? {};
           const index = generals.findIndex((item) => Number(item.slot) === slot);
@@ -1502,7 +1726,12 @@ async function saveEditedObservation() {
     },
     observedAt: draft.observedAt ?? new Date().toISOString(),
     completeness: completion.completeness,
-    summary: { ...(draft.summary ?? {}), completenessScore: completion.score },
+    summary: {
+      ...(draft.summary ?? {}),
+      completenessScore: completion.score,
+      troopType: draft.troopType || "",
+      troopLevel: draft.troopLevel === "" || draft.troopLevel == null ? null : Number(draft.troopLevel),
+    },
     generals: (draft.generals ?? []).map((general, index) => ({
       slot: index + 1,
       roleLabel: index === 0 ? "大将" : "副将",
@@ -1629,6 +1858,7 @@ function renderObservationTeam(group) {
           <div class="team-intel-summary">
             <span class="badge ${freshnessBadgeClass(freshness)}">${escapeHtml(freshness.label || "不明")}</span>
             <span class="badge ${confidenceBadgeClass(confidence)}">信頼度：${escapeHtml(confidence.label || "暫定")}</span>
+            ${observationTroopText(latest) ? `<span class="badge info">${escapeHtml(observationTroopText(latest))}</span>` : ""}
             <span class="team-intel-text">確認 ${Number(confidence.count ?? group.observationCount ?? 0)}回</span>
           </div>
           <div class="team-discovery-line">初発見：${escapeHtml(discoveredBy)}${intel.discoveredAt ? `・${escapeHtml(discoveredAt)}` : ""}</div>
@@ -1660,6 +1890,7 @@ function observationCard(observation, options = {}) {
         </div>
         <div class="badge-row" style="justify-content:flex-end">
           <span class="badge info">${escapeHtml(observation.season_name || state.currentSeason)}</span>
+          ${observationTroopText(observation) ? `<span class="badge info">${escapeHtml(observationTroopText(observation))}</span>` : ""}
           <span class="badge ${completenessBadgeClass(observation.completeness)}">${completenessLabel(observation.completeness)}</span>
         </div>
       </div>
@@ -2181,6 +2412,9 @@ function blankDraft(file = null) {
     observedAt: file?.capturedAt ?? new Date().toISOString(),
     observedAtSource: file?.capturedAtSource ?? "current-time",
     seasonName: state.currentSeason || "未設定",
+    troopType: "",
+    troopLevel: null,
+    troopConfidence: { type: 0, level: 0 },
     generals: [1, 2, 3].map((slot) => ({
       slot,
       roleLabel: slot === 1 ? "大将" : "副将",
@@ -2222,6 +2456,13 @@ async function analyzeCurrent() {
     state.draftUploadId = file.id;
     state.draft.observedAt = file.capturedAt ?? state.draft.observedAt ?? new Date().toISOString();
     state.draft.observedAtSource = file.capturedAtSource ?? state.draft.observedAtSource ?? "current-time";
+    state.draft.troopType = ocrInput.troopType || state.draft.troopType || "";
+    state.draft.troopLevel = state.draft.troopLevel == null ? null : Number(state.draft.troopLevel);
+    state.draft.troopConfidence = {
+      ...(state.draft.troopConfidence ?? {}),
+      type: Number(ocrInput.troopTypeConfidence ?? 0),
+      level: Number(state.draft.troopConfidence?.level ?? 0),
+    };
     (ocrInput.redLevels ?? []).forEach((value, index) => {
       if (value == null) return;
       const general = (state.draft.generals ?? []).find((item) => Number(item.slot) === index + 1);
@@ -2236,6 +2477,8 @@ async function analyzeCurrent() {
       ...(state.draft.summary ?? {}),
       observedAtSource: state.draft.observedAtSource,
       redLevelSource: ocrInput.redLevelSource,
+      troopTypeSource: "icon-template-v1",
+      troopTypeScores: ocrInput.troopTypeScores ?? {},
     };
     state.rawOcrText = response.rawText ?? "";
     state.analysisCached = Boolean(response.cached);
@@ -2341,6 +2584,20 @@ function renderReview() {
           </label>
         </div>
 
+        <div class="card form-stack">
+          <div class="card-header"><div><h2>部隊情報</h2><small>自動判定・修正可</small></div></div>
+          <div class="form-grid-2">
+            <label class="field">
+              <span>兵種<span class="confidence-dot ${confidenceClass(draft.troopConfidence?.type)}"></span></span>
+              <select data-draft-path="troopType">${troopTypeOptions(draft.troopType)}</select>
+            </label>
+            <label class="field">
+              <span>兵種Lv<span class="confidence-dot ${confidenceClass(draft.troopConfidence?.level)}"></span></span>
+              <input type="number" inputmode="numeric" min="1" max="10" data-draft-path="troopLevel" value="${escapeAttr(draft.troopLevel ?? "")}" placeholder="例 8" />
+            </label>
+          </div>
+        </div>
+
         ${[1, 2, 3]
           .map((slot) => {
             const general = generals.find((item) => Number(item.slot) === slot) ?? blankDraft().generals[slot - 1];
@@ -2386,7 +2643,7 @@ function renderReview() {
           state.rawOcrText
             ? `<details><summary>OCRの診断情報</summary><div class="details-body">
                 ${file?.ocrPrepared?.previewUrl ? `<button type="button" class="secondary-button" style="width:100%;margin-bottom:12px" data-action="open-ocr-image">OCR用に切り出した画像を確認</button>` : ""}
-                ${file?.ocrPrepared ? `<div class="notice info" style="margin-bottom:10px;font-size:.8rem">戦法レイアウト: ${escapeHtml(file.ocrPrepared.tacticLayout === "closed" ? "閉じ" : file.ocrPrepared.tacticLayout === "open" ? "開き" : "判定不能")} / OCRプロファイル: ${escapeHtml(file.ocrPrepared.profile)}</div>` : ""}
+                ${file?.ocrPrepared ? `<div class="notice info" style="margin-bottom:10px;font-size:.8rem">戦法レイアウト: ${escapeHtml(file.ocrPrepared.tacticLayout === "closed" ? "閉じ" : file.ocrPrepared.tacticLayout === "open" ? "開き" : "判定不能")} / OCRプロファイル: ${escapeHtml(file.ocrPrepared.profile)} / 兵種判定: ${escapeHtml(troopTypeLabel(file.ocrPrepared.troopType))} (${Number(file.ocrPrepared.troopTypeConfidence ?? 0).toFixed(2)})</div>` : ""}
                 <pre class="raw-ocr">${escapeHtml(state.rawOcrText)}</pre>
               </div></details>`
             : ""
@@ -2454,7 +2711,12 @@ async function saveObservation() {
     captureType: draft.captureType ?? file?.captureType ?? "unknown",
     enemySide: draft.enemySide ?? file?.enemySide ?? "right",
     completeness: completion.completeness,
-    summary: { ...(draft.summary ?? {}), completenessScore: completion.score },
+    summary: {
+      ...(draft.summary ?? {}),
+      completenessScore: completion.score,
+      troopType: draft.troopType || "",
+      troopLevel: draft.troopLevel === "" || draft.troopLevel == null ? null : Number(draft.troopLevel),
+    },
     ocrDraft: state.rawOcrText ? draft : {},
     generals: (draft.generals ?? []).map((general, index) => ({
       slot: index + 1,
