@@ -1,4 +1,4 @@
-const APP_VERSION = "1.9.2";
+const APP_VERSION = "1.9.3";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -69,6 +69,7 @@ const state = {
   formationDraft: null,
   formationPicker: null,
   formationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
+  formationSwap: null,
   sharedFormation: null,
   shareToken: "",
   sharedFormationSet: null,
@@ -85,6 +86,7 @@ const state = {
   consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
   consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
   consultationTacticPickerKind: "all",
+  consultationSwap: null,
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -3457,19 +3459,80 @@ function refreshFormationPickerOptions() {
   }
 }
 
+function formationSwapToolbarHtml() {
+  const swap = state.formationSwap;
+  const activeKind = swap?.kind || "";
+  const guide = activeKind
+    ? `<small>${activeKind === "general" ? "入れ替える武将を2人タップ" : "入れ替える戦法枠を2つタップ"}</small>`
+    : `<small>選び直さず位置だけ交換</small>`;
+  return `
+    <div class="formation-swap-toolbar ${activeKind ? "active" : ""}">
+      <div><strong>入れ替え</strong>${guide}</div>
+      <div class="formation-swap-actions">
+        <button type="button" class="secondary-button compact-button ${activeKind === "general" ? "selected" : ""}" data-action="start-formation-swap" data-kind="general">武将</button>
+        <button type="button" class="secondary-button compact-button ${activeKind === "tactic" ? "selected" : ""}" data-action="start-formation-swap" data-kind="tactic">戦法</button>
+        ${activeKind ? `<button type="button" class="text-button" data-action="cancel-formation-swap">終了</button>` : ""}
+      </div>
+    </div>`;
+}
+
+function formationTacticSwapTargetsHtml(member) {
+  if (state.formationSwap?.kind !== "tactic") return "";
+  const first = state.formationSwap?.first;
+  return `<div class="tactic-swap-targets">
+    ${[1,2].map((index) => {
+      const field = `tactic${index}`;
+      const name = member[`${field}Name`] || `第${index}戦法：空き`;
+      const selected = first && Number(first.slot) === Number(member.slot) && first.field === field;
+      return `<button type="button" class="tactic-swap-target ${selected ? "swap-first-selected" : ""}" data-action="select-formation-swap-tactic" data-slot="${member.slot}" data-field="${field}"><small>第${index}</small><strong>${escapeHtml(name)}</strong></button>`;
+    }).join("")}
+  </div>`;
+}
+
+function swapMemberSlots(members, slotA, slotB) {
+  if (!Array.isArray(members) || Number(slotA) === Number(slotB)) return;
+  const indexA = members.findIndex((row) => Number(row.slot) === Number(slotA));
+  const indexB = members.findIndex((row) => Number(row.slot) === Number(slotB));
+  if (indexA < 0 || indexB < 0) return;
+  const a = { ...members[indexA], slot: Number(slotB) };
+  const b = { ...members[indexB], slot: Number(slotA) };
+  members[indexA] = b;
+  members[indexB] = a;
+  members.sort((x, y) => Number(x.slot) - Number(y.slot));
+}
+
+function swapTacticSlots(members, first, second) {
+  if (!Array.isArray(members) || !first || !second) return;
+  if (Number(first.slot) === Number(second.slot) && first.field === second.field) return;
+  const memberA = members.find((row) => Number(row.slot) === Number(first.slot));
+  const memberB = members.find((row) => Number(row.slot) === Number(second.slot));
+  if (!memberA || !memberB) return;
+  const idA = `${first.field}QookkaId`;
+  const nameA = `${first.field}Name`;
+  const idB = `${second.field}QookkaId`;
+  const nameB = `${second.field}Name`;
+  const tempId = memberA[idA] || "";
+  const tempName = memberA[nameA] || "";
+  memberA[idA] = memberB[idB] || "";
+  memberA[nameA] = memberB[nameB] || "";
+  memberB[idB] = tempId;
+  memberB[nameB] = tempName;
+}
+
 function memberEditorHtml(member) {
   const general = state.myInventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
   const tacticSummary = [member.tactic1Name, member.tactic2Name].filter(Boolean).join(" / ") || "戦法を選択";
+  const generalSwapActive = state.formationSwap?.kind === "general";
+  const first = state.formationSwap?.first;
+  const generalFirstSelected = generalSwapActive && first && Number(first.slot) === Number(member.slot);
   return `
-    <section class="formation-member-editor">
+    <section class="formation-member-editor ${generalSwapActive ? "swap-mode" : ""} ${generalFirstSelected ? "swap-first-selected" : ""}">
       <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
-      <div class="selected-general-display ${member.generalName ? "selected" : ""}">
-        <span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>
-        ${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}
-      </div>
+      ${generalSwapActive ? `<button type="button" class="selected-general-display general-swap-target ${member.generalName ? "selected" : ""}" data-action="select-formation-swap-general" data-slot="${member.slot}"><span>${member.generalName ? escapeHtml(member.generalName) : "空き枠"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}<em>${generalFirstSelected ? "1人目に選択中" : "タップして入替"}</em></button>` : `<div class="selected-general-display ${member.generalName ? "selected" : ""}"><span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>`}
       <button type="button" class="search-choice-button tactic-batch-choice ${(member.tactic1Name || member.tactic2Name) ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactics">
         <span><b>${escapeHtml(tacticSummary)}</b><small>第1・第2戦法をまとめて選択</small></span><small>選択 ›</small>
       </button>
+      ${formationTacticSwapTargetsHtml(member)}
     </section>`;
 }
 
@@ -3851,14 +3914,50 @@ function refreshConsultationPickerOptions() {
   }
 }
 
+function consultationSwapToolbarHtml(formationIndex) {
+  const swap = state.consultationSwap;
+  const activeHere = swap && Number(swap.formationIndex) === Number(formationIndex);
+  const activeKind = activeHere ? swap.kind : "";
+  const guide = activeKind
+    ? `<small>${activeKind === "general" ? "入れ替える武将を2人タップ" : "入れ替える戦法枠を2つタップ"}</small>`
+    : `<small>選び直さず位置だけ交換</small>`;
+  return `<div class="formation-swap-toolbar ${activeKind ? "active" : ""}">
+    <div><strong>入れ替え</strong>${guide}</div>
+    <div class="formation-swap-actions">
+      <button type="button" class="secondary-button compact-button ${activeKind === "general" ? "selected" : ""}" data-action="start-consultation-swap" data-kind="general" data-formation-index="${formationIndex}">武将</button>
+      <button type="button" class="secondary-button compact-button ${activeKind === "tactic" ? "selected" : ""}" data-action="start-consultation-swap" data-kind="tactic" data-formation-index="${formationIndex}">戦法</button>
+      ${activeKind ? `<button type="button" class="text-button" data-action="cancel-consultation-swap">終了</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function consultationTacticSwapTargetsHtml(formationIndex, member) {
+  const swap = state.consultationSwap;
+  if (swap?.kind !== "tactic" || Number(swap.formationIndex) !== Number(formationIndex)) return "";
+  const first = swap.first;
+  return `<div class="tactic-swap-targets">
+    ${[1,2].map((index) => {
+      const field = `tactic${index}`;
+      const name = member[`${field}Name`] || `第${index}戦法：空き`;
+      const selected = first && Number(first.slot) === Number(member.slot) && first.field === field;
+      return `<button type="button" class="tactic-swap-target ${selected ? "swap-first-selected" : ""}" data-action="select-consultation-swap-tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}"><small>第${index}</small><strong>${escapeHtml(name)}</strong></button>`;
+    }).join("")}
+  </div>`;
+}
+
 function consultationMemberEditorHtml(formationIndex, member) {
   const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
   const tacticSummary = [member.tactic1Name, member.tactic2Name].filter(Boolean).join(" / ") || "戦法を選択";
+  const swap = state.consultationSwap;
+  const generalSwapActive = swap?.kind === "general" && Number(swap.formationIndex) === Number(formationIndex);
+  const first = swap?.first;
+  const generalFirstSelected = generalSwapActive && first && Number(first.slot) === Number(member.slot);
   return `
-    <section class="formation-member-editor">
+    <section class="formation-member-editor ${generalSwapActive ? "swap-mode" : ""} ${generalFirstSelected ? "swap-first-selected" : ""}">
       <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
-      <div class="selected-general-display ${member.generalName ? "selected" : ""}"><span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>
+      ${generalSwapActive ? `<button type="button" class="selected-general-display general-swap-target ${member.generalName ? "selected" : ""}" data-action="select-consultation-swap-general" data-formation-index="${formationIndex}" data-slot="${member.slot}"><span>${member.generalName ? escapeHtml(member.generalName) : "空き枠"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}<em>${generalFirstSelected ? "1人目に選択中" : "タップして入替"}</em></button>` : `<div class="selected-general-display ${member.generalName ? "selected" : ""}"><span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>`}
       <button type="button" class="search-choice-button tactic-batch-choice ${(member.tactic1Name || member.tactic2Name) ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactics"><span><b>${escapeHtml(tacticSummary)}</b><small>第1・第2戦法をまとめて選択</small></span><small>選択 ›</small></button>
+      ${consultationTacticSwapTargetsHtml(formationIndex, member)}
     </section>`;
 }
 
@@ -3877,6 +3976,7 @@ function consultationProposalFormationEditorHtml(formation, index) {
         <label class="field"><span>兵種Lv</span><select data-consultation-formation-path="troopLevel" data-index="${index}"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(formation.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
       </div>
       ${consultationGeneralBatchButtonHtml(index, formation)}
+      ${consultationSwapToolbarHtml(index)}
       ${formation.members.map((member) => consultationMemberEditorHtml(index, member)).join("")}
       <label class="field"><span>部隊メモ（任意）</span><textarea maxlength="500" rows="2" data-consultation-formation-path="note" data-index="${index}">${escapeHtml(formation.note || "")}</textarea></label>
     </section>`;
@@ -3966,6 +4066,7 @@ function renderFormationEditor() {
             </div>
           </div>
           ${formationGeneralBatchButtonHtml()}
+          ${formationSwapToolbarHtml()}
           ${draft.members.map(memberEditorHtml).join("")}
           <div class="card"><label class="field"><span>メモ（任意）</span><textarea name="note" maxlength="500" rows="3" data-formation-path="note" placeholder="運用条件、注意点など">${escapeHtml(draft.note)}</textarea></label></div>
           <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面で単体共有するか、まとめ共有に選んだ編成だけ共有URLから閲覧できます。</small></div></div>
@@ -4841,6 +4942,7 @@ document.addEventListener("click", async (event) => {
     state.consultationSubmitted = false;
     state.consultationDraft = newConsultationProposalDraft();
     state.consultationPicker = null;
+    state.consultationSwap = null;
     renderFormationConsultationBody();
   }
   if (action === "add-consultation-formation") {
@@ -4852,9 +4954,11 @@ document.addEventListener("click", async (event) => {
     if (!state.consultationDraft || state.consultationDraft.formations.length <= 1) return;
     state.consultationDraft.formations.splice(Number(button.dataset.index), 1);
     state.consultationPicker = null;
+    state.consultationSwap = null;
     renderFormationConsultationBody();
   }
   if (action === "open-consultation-picker") {
+    state.consultationSwap = null;
     const kind = button.dataset.kind === "general" ? "general" : "tactic";
     const formationIndex = Number(button.dataset.formationIndex);
     const formation = state.consultationDraft?.formations?.[formationIndex];
@@ -4925,6 +5029,48 @@ document.addEventListener("click", async (event) => {
     state.consultationPicker = null;
     renderFormationConsultationBody();
   }
+  if (action === "start-consultation-swap") {
+    state.consultationSwap = { kind: button.dataset.kind === "tactic" ? "tactic" : "general", formationIndex: Number(button.dataset.formationIndex), first: null };
+    renderFormationConsultationBody();
+  }
+  if (action === "cancel-consultation-swap") {
+    state.consultationSwap = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "select-consultation-swap-general") {
+    const swap = state.consultationSwap;
+    const formationIndex = Number(button.dataset.formationIndex);
+    const slot = Number(button.dataset.slot);
+    if (!swap || swap.kind !== "general" || Number(swap.formationIndex) !== formationIndex) return;
+    if (!swap.first) {
+      swap.first = { slot };
+      renderFormationConsultationBody();
+    } else {
+      const formation = state.consultationDraft?.formations?.[formationIndex];
+      if (!formation) return;
+      if (Number(swap.first.slot) === slot) { swap.first = null; renderFormationConsultationBody(); return; }
+      swapMemberSlots(formation.members, swap.first.slot, slot);
+      state.consultationSwap = null;
+      renderFormationConsultationBody();
+    }
+  }
+  if (action === "select-consultation-swap-tactic") {
+    const swap = state.consultationSwap;
+    const formationIndex = Number(button.dataset.formationIndex);
+    const target = { slot: Number(button.dataset.slot), field: button.dataset.field === "tactic2" ? "tactic2" : "tactic1" };
+    if (!swap || swap.kind !== "tactic" || Number(swap.formationIndex) !== formationIndex) return;
+    if (!swap.first) {
+      swap.first = target;
+      renderFormationConsultationBody();
+    } else {
+      const formation = state.consultationDraft?.formations?.[formationIndex];
+      if (!formation) return;
+      if (Number(swap.first.slot) === target.slot && swap.first.field === target.field) { swap.first = null; renderFormationConsultationBody(); return; }
+      swapTacticSlots(formation.members, swap.first, target);
+      state.consultationSwap = null;
+      renderFormationConsultationBody();
+    }
+  }
   if (action === "begin-share-formations") {
     state.formationShareSelection = [];
     await navigate("formation-share-select");
@@ -4981,6 +5127,7 @@ document.addEventListener("click", async (event) => {
     if (!state.myInventory?.generals?.length) { showToast("先に所持情報を同期してください。", "error"); return; }
     state.formationDraft = newFormationDraft();
     state.formationPicker = null;
+    state.formationSwap = null;
     await navigate("formation-edit");
   }
   if (action === "edit-my-formation") {
@@ -4988,9 +5135,11 @@ document.addEventListener("click", async (event) => {
     if (!formation) return;
     state.formationDraft = cloneFormationForEdit(formation);
     state.formationPicker = null;
+    state.formationSwap = null;
     await navigate("formation-edit");
   }
   if (action === "open-formation-picker") {
+    state.formationSwap = null;
     const kind = button.dataset.kind === "general" ? "general" : "tactic";
     const slot = Number(button.dataset.slot || 1);
     const member = state.formationDraft?.members?.find((row) => Number(row.slot) === slot);
@@ -5055,6 +5204,42 @@ document.addEventListener("click", async (event) => {
     }
     state.formationPicker = null;
     renderFormationEditor();
+  }
+  if (action === "start-formation-swap") {
+    state.formationSwap = { kind: button.dataset.kind === "tactic" ? "tactic" : "general", first: null };
+    renderFormationEditor();
+  }
+  if (action === "cancel-formation-swap") {
+    state.formationSwap = null;
+    renderFormationEditor();
+  }
+  if (action === "select-formation-swap-general") {
+    const swap = state.formationSwap;
+    const slot = Number(button.dataset.slot);
+    if (!swap || swap.kind !== "general" || !state.formationDraft) return;
+    if (!swap.first) {
+      swap.first = { slot };
+      renderFormationEditor();
+    } else {
+      if (Number(swap.first.slot) === slot) { swap.first = null; renderFormationEditor(); return; }
+      swapMemberSlots(state.formationDraft.members, swap.first.slot, slot);
+      state.formationSwap = null;
+      renderFormationEditor();
+    }
+  }
+  if (action === "select-formation-swap-tactic") {
+    const swap = state.formationSwap;
+    const target = { slot: Number(button.dataset.slot), field: button.dataset.field === "tactic2" ? "tactic2" : "tactic1" };
+    if (!swap || swap.kind !== "tactic" || !state.formationDraft) return;
+    if (!swap.first) {
+      swap.first = target;
+      renderFormationEditor();
+    } else {
+      if (Number(swap.first.slot) === target.slot && swap.first.field === target.field) { swap.first = null; renderFormationEditor(); return; }
+      swapTacticSlots(state.formationDraft.members, swap.first, target);
+      state.formationSwap = null;
+      renderFormationEditor();
+    }
   }
   if (action === "set-my-dupe") {
     const general = state.myInventory?.generals?.find((row) => row.qookkaId === button.dataset.id);

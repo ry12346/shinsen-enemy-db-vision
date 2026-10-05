@@ -3378,3 +3378,64 @@ textarea:focus {
   .multi-choice-summary { grid-template-columns: 1fr; }
   .multi-choice-sheet { max-height: 92dvh; }
 }
+
+
+/* v1.9.3 formation/tactic swap */
+.formation-swap-toolbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 12px;
+  border:1px solid rgba(213,224,240,.10);
+  border-radius:15px;
+  background:rgba(7,13,22,.46);
+}
+.formation-swap-toolbar > div:first-child { display:grid; gap:2px; min-width:0; }
+.formation-swap-toolbar strong { font-size:.78rem; }
+.formation-swap-toolbar small { color:var(--muted); font-size:.66rem; }
+.formation-swap-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.formation-swap-actions .selected {
+  border-color:rgba(216,188,118,.55);
+  background:rgba(216,188,118,.14);
+  color:#efd79d;
+}
+.formation-member-editor.swap-mode { border-color:rgba(216,188,118,.25); }
+.formation-member-editor.swap-first-selected { box-shadow:0 0 0 2px rgba(216,188,118,.28) inset; }
+.general-swap-target {
+  width:100%;
+  appearance:none;
+  text-align:left;
+  cursor:pointer;
+}
+.general-swap-target em {
+  margin-left:auto;
+  color:#d8bc76;
+  font-size:.66rem;
+  font-style:normal;
+  white-space:nowrap;
+}
+.tactic-swap-targets { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.tactic-swap-target {
+  min-width:0;
+  min-height:48px;
+  padding:8px 9px;
+  border:1px solid rgba(213,224,240,.12);
+  border-radius:12px;
+  background:rgba(5,10,17,.5);
+  color:var(--text);
+  display:grid;
+  gap:2px;
+  text-align:left;
+}
+.tactic-swap-target small { color:#c9b77e; font-size:.62rem; }
+.tactic-swap-target strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.76rem; }
+.tactic-swap-target.swap-first-selected {
+  border-color:rgba(216,188,118,.62);
+  background:rgba(216,188,118,.14);
+  box-shadow:0 0 0 1px rgba(216,188,118,.15) inset;
+}
+@media (max-width:520px) {
+  .formation-swap-toolbar { align-items:flex-start; flex-direction:column; }
+  .formation-swap-actions { width:100%; justify-content:flex-start; }
+}
