@@ -2943,3 +2943,283 @@ textarea:focus {
   text-underline-offset: 2px;
   cursor: pointer;
 }
+
+/* v1.8.3 複数編成まとめ共有 */
+.formation-primary-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.share-set-management > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.share-set-management > summary::-webkit-details-marker { display: none; }
+.share-set-management-list { display: grid; gap: 10px; margin-top: 12px; }
+.share-set-management-row {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, rgba(255,255,255,.1));
+}
+.share-set-management-row:first-child { border-top: 0; padding-top: 0; }
+.share-set-management-row > div:first-child { display: grid; gap: 3px; }
+.share-set-management-row small { color: var(--muted-color, #8e9aaa); line-height: 1.45; }
+.compact-button { min-height: 38px; padding: 8px 12px; }
+
+.formation-share-select-page { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+.share-selection-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.share-select-list { display: grid; gap: 10px; }
+.share-select-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0,1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(143,159,178,.35);
+  border-radius: 14px;
+  background: rgba(255,255,255,.025);
+  color: inherit;
+  text-align: left;
+}
+.share-select-card.selected {
+  border-color: rgba(214,69,69,.85);
+  background: rgba(181,53,53,.12);
+}
+.share-select-check {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid rgba(143,159,178,.6);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+.share-select-card.selected .share-select-check {
+  border-color: #d84a4a;
+  background: #d84a4a;
+  color: #fff;
+}
+.share-select-main { display: grid; gap: 4px; min-width: 0; }
+.share-select-main > strong { font-size: 1rem; }
+.share-select-main > small,
+.share-select-members { color: var(--muted-color, #8e9aaa); font-size: .8rem; line-height: 1.4; }
+
+.shared-formation-set-page { display: grid; gap: 12px; }
+.shared-set-intro {
+  display: grid;
+  gap: 6px;
+  padding: 4px 2px 8px;
+}
+.shared-set-intro > strong { font-size: 1.15rem; }
+.shared-set-intro > small { color: var(--muted-color, #8e9aaa); }
+.shared-set-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.shared-set-card-heading > div { display: flex; align-items: center; gap: 8px; }
+.shared-set-number {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(216,74,74,.16);
+  color: #ef6b6b;
+  font-weight: 800;
+  font-size: .78rem;
+}
+.shared-set-card-heading small { color: var(--muted-color, #8e9aaa); }
+
+@media (max-width: 560px) {
+  .formation-primary-actions { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================
+   v1.9.0 編成相談
+   ========================================================== */
+.consultation-create-button {
+  border-color: rgba(200, 163, 82, .28);
+}
+
+.consultation-management > summary,
+.consultation-inventory-card > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.consultation-management > summary::-webkit-details-marker,
+.consultation-inventory-card > summary::-webkit-details-marker { display: none; }
+
+.consultation-management-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.consultation-management-row {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(213,224,240,.1);
+}
+
+.consultation-management-row:first-child { border-top: 0; padding-top: 0; }
+.consultation-management-row > div:first-child { display: grid; gap: 3px; }
+.consultation-management-row small { color: var(--muted); line-height: 1.45; }
+
+.consultation-scope-card { display: grid; gap: 12px; }
+.consultation-scope-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.consultation-scope-grid span {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.035);
+  color: var(--muted);
+  font-size: .78rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.consultation-scope-grid b { color: var(--text); }
+
+.consultation-owner-summary { display: grid; gap: 12px; }
+.consultation-owner-summary p { margin: 0; line-height: 1.65; }
+
+.consultation-proposal-card {
+  display: grid;
+  gap: 14px;
+}
+.consultation-proposal-card.adopted {
+  border-color: rgba(95, 163, 118, .28);
+}
+.consultation-proposal-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.consultation-proposal-head > div { display: grid; gap: 3px; }
+.consultation-proposal-head small { color: var(--muted); }
+.consultation-proposal-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.consultation-proposal-formations { display: grid; gap: 12px; }
+.consultation-proposal-formation {
+  padding: 12px;
+  border: 1px solid rgba(213,224,240,.1);
+  border-radius: 14px;
+  background: rgba(7,13,21,.34);
+}
+.consultation-proposal-actions { align-items: center; }
+
+.consultation-public-page { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+.consultation-request { display: grid; gap: 8px; }
+.consultation-request p { margin: 0; white-space: pre-wrap; line-height: 1.7; }
+.consultation-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.consultation-counts span {
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(207,169,86,.08);
+  color: var(--muted);
+  font-size: .72rem;
+}
+.consultation-counts b { color: #d8bc76; }
+.consultation-inventory-card > summary span { color: var(--muted); font-size: .72rem; }
+.consultation-inventory-body { display: grid; gap: 9px; padding-top: 12px; }
+.consultation-general-grid { display: grid; gap: 6px; max-height: 460px; overflow: auto; }
+.consultation-general-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(213,224,240,.065);
+}
+.consultation-general-item > div { display: grid; gap: 2px; min-width: 0; }
+.consultation-general-item small { color: var(--muted); font-size: .68rem; }
+.consultation-general-item b { flex: 0 0 auto; color: #e98c8c; }
+
+.consultation-formation-editor { display: grid; gap: 10px; }
+.consultation-formation-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.add-consultation-formation { width: 100%; }
+
+.consultation-success {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 30px 18px;
+}
+.consultation-success .success-mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(95,163,118,.16);
+  color: #86d59d;
+  font-size: 1.5rem;
+  font-weight: 900;
+}
+.consultation-success h2,
+.consultation-success p { margin: 0; }
+.consultation-success p { color: var(--muted); line-height: 1.65; }
+
+@media (min-width: 760px) {
+  .formation-primary-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .consultation-scope-grid { grid-template-columns: 1fr; }
+  .consultation-proposal-actions { align-items: stretch; flex-direction: column; }
+  .consultation-proposal-actions .primary-button,
+  .consultation-proposal-actions .text-button { width: 100%; }
+}
+.closed-consultation-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(143,159,178,.12);
+  color: var(--muted);
+  font-size: .62rem;
+  vertical-align: middle;
+}

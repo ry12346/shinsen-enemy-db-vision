@@ -1,4 +1,4 @@
-const APP_VERSION = "1.8.2";
+const APP_VERSION = "1.9.0";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -62,12 +62,26 @@ const state = {
   intel: null,
   myInventory: null,
   myFormations: [],
+  myFormationShareSets: [],
+  formationShareSelection: [],
   inventorySearch: "",
   inventoryFilters: { star: "5", faction: "all", cost: "all" },
   formationDraft: null,
   formationPicker: null,
   sharedFormation: null,
   shareToken: "",
+  sharedFormationSet: null,
+  shareSetToken: "",
+  myFormationConsultations: [],
+  activeConsultationId: "",
+  activeConsultation: null,
+  consultationToken: "",
+  sharedConsultation: null,
+  consultationDraft: null,
+  consultationPicker: null,
+  consultationSubmitted: false,
+  consultationInventorySearch: "",
+  consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -1375,6 +1389,18 @@ async function initialize() {
 
     state.member = status.member;
     const discordParams = new URLSearchParams(window.location.search);
+    const consultationToken = discordParams.get("consultation") || "";
+    if (consultationToken) {
+      state.consultationToken = consultationToken;
+      await navigate("formation-consultation");
+      return;
+    }
+    const sharedSetToken = discordParams.get("formation_set") || "";
+    if (sharedSetToken) {
+      state.shareSetToken = sharedSetToken;
+      await navigate("shared-formation-set");
+      return;
+    }
     const sharedToken = discordParams.get("formation") || "";
     if (sharedToken) {
       state.shareToken = sharedToken;
@@ -1411,7 +1437,12 @@ async function navigate(view) {
   else if (view === "formations") await renderMyFormations();
   else if (view === "inventory") await renderMyInventory();
   else if (view === "formation-edit") renderFormationEditor();
+  else if (view === "formation-share-select") renderFormationShareSelector();
+  else if (view === "formation-consultation-create") renderFormationConsultationCreate();
+  else if (view === "formation-consultation-detail") await renderFormationConsultationDetail();
+  else if (view === "formation-consultation") await renderFormationConsultation();
   else if (view === "shared-formation") await renderSharedFormation();
+  else if (view === "shared-formation-set") await renderSharedFormationSet();
   else if (view === "usage") await renderUsage();
   else if (view === "settings") await renderSettings();
   else if (view === "masters") await renderMasters();
@@ -3031,13 +3062,17 @@ function cloneFormationForEdit(formation) {
 }
 
 async function loadMyFormationData({ force = false } = {}) {
-  if (!force && state.myInventory && Array.isArray(state.myFormations)) return;
-  const [inventoryResponse, formationsResponse] = await Promise.all([
+  if (!force && state.myInventory && Array.isArray(state.myFormations) && Array.isArray(state.myFormationShareSets) && Array.isArray(state.myFormationConsultations)) return;
+  const [inventoryResponse, formationsResponse, shareSetsResponse, consultationsResponse] = await Promise.all([
     apiRequest("my_inventory"),
     apiRequest("my_formations"),
+    apiRequest("my_formation_share_sets"),
+    apiRequest("my_formation_consultations"),
   ]);
   state.myInventory = inventoryResponse.inventory ?? { generals: [], tactics: [], lastImport: null };
   state.myFormations = formationsResponse.formations ?? [];
+  state.myFormationShareSets = shareSetsResponse.shareSets ?? [];
+  state.myFormationConsultations = consultationsResponse.consultations ?? [];
 }
 
 function qookkaSyncCard() {
@@ -3104,6 +3139,8 @@ async function renderMyFormations() {
 function renderMyFormationsBody() {
   const inventory = state.myInventory ?? { generals: [], tactics: [] };
   const hasInventory = (inventory.generals?.length ?? 0) > 0 || (inventory.tactics?.length ?? 0) > 0;
+  const shareSets = state.myFormationShareSets ?? [];
+  const shareSetFormationIds = new Set(shareSets.flatMap((set) => set.formationIds ?? []));
   const formationCards = state.myFormations.length
     ? state.myFormations.map((formation) => `
       <article class="card formation-card">
@@ -3111,7 +3148,7 @@ function renderMyFormationsBody() {
           <div>
             <div class="formation-title-row">
               <h2>${escapeHtml(formation.name || "名称未設定の編成")}</h2>
-              <span class="privacy-badge ${formation.isShared ? "shared" : "private"}">${formation.isShared ? "共有中" : "非公開"}</span>
+              <span class="privacy-badge ${(formation.isShared || shareSetFormationIds.has(formation.id)) ? "shared" : "private"}">${formation.isShared ? "単体共有中" : (shareSetFormationIds.has(formation.id) ? "まとめ共有中" : "非公開")}</span>
             </div>
             <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}${formation.updatedAt ? ` ・ 更新 ${escapeHtml(formatDateTime(formation.updatedAt))}` : ""}</small>
           </div>
@@ -3121,22 +3158,74 @@ function renderMyFormationsBody() {
         <button type="button" class="primary-button formation-edit-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編成を編集</button>
         <div class="button-row formation-share-actions">
           ${formation.isShared
-            ? `<button type="button" class="secondary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">共有URLをコピー</button>
-               <button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">共有解除</button>`
-            : `<button type="button" class="secondary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">この編成を共有</button>`}
+            ? `<button type="button" class="secondary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">単体共有URLをコピー</button>
+               <button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">単体共有を解除</button>`
+            : `<button type="button" class="secondary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">この編成だけ共有</button>`}
         </div>
       </article>`).join("")
     : `<div class="card empty-state"><strong>まだ編成がありません</strong><p class="muted">「編成を登録」から最初の編成を作成できます。</p></div>`;
+
+  const consultationHtml = consultationManagementHtml();
+
+  const shareSetHtml = shareSets.length ? `
+    <details class="card share-set-management">
+      <summary><strong>まとめ共有リンク ${shareSets.length}件</strong><span>管理</span></summary>
+      <div class="share-set-management-list">
+        ${shareSets.map((set) => `
+          <div class="share-set-management-row">
+            <div><strong>${escapeHtml(set.title || `編成共有 ${Number(set.formationCount || 0)}部隊`)}</strong><small>${(set.formationNames ?? []).map(escapeHtml).join(" / ")}${set.createdAt ? ` ・ ${escapeHtml(formatDateTime(set.createdAt))}` : ""}</small></div>
+            <div class="button-row">
+              <button type="button" class="secondary-button compact-button" data-action="copy-formation-share-set" data-token="${escapeAttr(set.shareToken || "")}">URLコピー</button>
+              <button type="button" class="text-button danger-text" data-action="revoke-formation-share-set" data-id="${escapeAttr(set.id)}">解除</button>
+            </div>
+          </div>`).join("")}
+      </div>
+    </details>` : "";
 
   app.innerHTML = pageHtml({
     title: "マイ編成",
     subtitle: "編成の登録・編集をすばやく",
     content: `
       <div class="page-content formation-page">
-        <button type="button" class="primary-button create-formation-button" data-action="new-my-formation" ${hasInventory ? "" : "disabled"}>＋ 編成を登録</button>
-        ${!hasInventory ? `<div class="notice warning">編成登録の前に所持情報が必要です。<button type="button" class="inline-link-button" data-action="navigate" data-view="inventory">所持情報を登録する</button></div>` : ""}
+        <div class="formation-primary-actions">
+          <button type="button" class="primary-button create-formation-button" data-action="new-my-formation" ${hasInventory ? "" : "disabled"}>＋ 編成を登録</button>
+          <button type="button" class="secondary-button create-formation-button" data-action="begin-share-formations" ${state.myFormations.length ? "" : "disabled"}>複数編成をまとめて共有</button>
+          <button type="button" class="secondary-button create-formation-button consultation-create-button" data-action="new-formation-consultation" ${hasInventory ? "" : "disabled"}>編成相談を作成</button>
+        </div>
+        ${!hasInventory ? `<div class="notice warning">編成登録・編成相談の前に所持情報が必要です。<button type="button" class="inline-link-button" data-action="navigate" data-view="inventory">所持情報を登録する</button></div>` : ""}
+        ${consultationHtml}
+        ${shareSetHtml}
         <div class="section-heading"><h2>保存した編成</h2><span>${state.myFormations.length}件</span></div>
         ${formationCards}
+      </div>`,
+    activeNav: "formations",
+  });
+}
+
+function renderFormationShareSelector() {
+  const selected = new Set(state.formationShareSelection ?? []);
+  const cards = state.myFormations.map((formation) => {
+    const isSelected = selected.has(formation.id);
+    return `
+      <button type="button" class="share-select-card ${isSelected ? "selected" : ""}" data-action="toggle-formation-share-selection" data-id="${escapeAttr(formation.id)}" aria-pressed="${isSelected ? "true" : "false"}">
+        <span class="share-select-check" aria-hidden="true">${isSelected ? "✓" : ""}</span>
+        <span class="share-select-main">
+          <strong>${escapeHtml(formation.name || "名称未設定の編成")}</strong>
+          <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+          <span class="share-select-members">${(formation.members ?? []).map((member) => escapeHtml(member.generalName || "")).filter(Boolean).join(" / ") || "武将未設定"}</span>
+        </span>
+      </button>`;
+  }).join("");
+  app.innerHTML = pageHtml({
+    title: "まとめて共有",
+    subtitle: "共有したい編成を複数選択",
+    content: `
+      <div class="page-content formation-share-select-page">
+        <div class="notice info">選択した編成だけが1つの共有URLに表示されます。所持武将・所持戦法や、選択していない編成は公開されません。</div>
+        <div class="share-selection-status"><strong>${selected.size}編成を選択中</strong><button type="button" class="text-button" data-action="clear-formation-share-selection">選択解除</button></div>
+        <div class="share-select-list">${cards || `<div class="card empty-state">共有できる編成がありません。</div>`}</div>
+        <button type="button" class="primary-button" style="width:100%" data-action="create-formation-share-set" ${selected.size ? "" : "disabled"}>選択した${selected.size}編成の共有URLを作成</button>
+        <button type="button" class="secondary-button" style="width:100%" data-action="cancel-formation-share-selection">戻る</button>
       </div>`,
     activeNav: "formations",
   });
@@ -3357,6 +3446,410 @@ function memberEditorHtml(member) {
     </section>`;
 }
 
+function formationConsultationUrl(token) {
+  if (!token) return "";
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("consultation", token);
+  return url.toString();
+}
+
+function newConsultationProposalFormation(index = 0) {
+  return {
+    name: `第${index + 1}軍`,
+    troopType: "",
+    troopLevel: "",
+    note: "",
+    members: [1, 2, 3].map((slot) => ({
+      slot,
+      generalQookkaId: "",
+      generalName: "",
+      tactic1QookkaId: "",
+      tactic1Name: "",
+      tactic2QookkaId: "",
+      tactic2Name: "",
+    })),
+  };
+}
+
+function newConsultationProposalDraft() {
+  return {
+    proposerName: "",
+    note: "",
+    formations: [newConsultationProposalFormation(0)],
+  };
+}
+
+function consultationManagementHtml() {
+  const consultations = state.myFormationConsultations ?? [];
+  if (!consultations.length) return "";
+  return `
+    <details class="card consultation-management">
+      <summary><strong>編成相談 ${consultations.length}件</strong><span>管理</span></summary>
+      <div class="consultation-management-list">
+        ${consultations.map((consultation) => `
+          <div class="consultation-management-row">
+            <div>
+              <strong>${escapeHtml(consultation.title || "編成相談")} ${consultation.isActive === false ? `<span class="closed-consultation-badge">受付終了</span>` : ""}</strong>
+              <small>提案 ${Number(consultation.proposalCount || 0)}件${Number(consultation.adoptedCount || 0) ? ` ・ 採用 ${Number(consultation.adoptedCount || 0)}件` : ""}${consultation.createdAt ? ` ・ ${escapeHtml(formatDateTime(consultation.createdAt))}` : ""}</small>
+            </div>
+            <div class="button-row">
+              <button type="button" class="secondary-button compact-button" data-action="open-formation-consultation-detail" data-id="${escapeAttr(consultation.id)}">提案を見る</button>
+              ${consultation.isActive === false ? "" : `<button type="button" class="secondary-button compact-button" data-action="copy-formation-consultation" data-token="${escapeAttr(consultation.shareToken || "")}">相談URLコピー</button><button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付終了</button>`}
+            </div>
+          </div>`).join("")}
+      </div>
+    </details>`;
+}
+
+function renderFormationConsultationCreate() {
+  app.innerHTML = pageHtml({
+    title: "編成相談を作成",
+    subtitle: "全手持ちを共有して編成案を募集",
+    content: `
+      <div class="page-content consultation-create-page">
+        <div class="notice warning"><strong>相談URLから全所持情報を閲覧できます。</strong><br>所持武将・凸・所持戦法をすべて公開します。保存済みのマイ編成や敵部隊DBは公開されません。</div>
+        <form class="form-stack" data-form="create-formation-consultation">
+          <div class="card form-stack">
+            <label class="field"><span>相談タイトル</span><input name="title" maxlength="80" value="編成相談" required placeholder="例：PK2 対人3軍の編成相談" /></label>
+            <label class="field"><span>相談内容・条件（任意）</span><textarea name="note" maxlength="1000" rows="5" placeholder="例：対人用で3軍まで。第1軍を最優先。兵種は問いません。"></textarea></label>
+          </div>
+          <div class="card consultation-scope-card">
+            <strong>相談相手に見える情報</strong>
+            <div class="consultation-scope-grid">
+              <span>所持武将 <b>${Number(state.myInventory?.generals?.length || 0)}</b></span>
+              <span>所持戦法 <b>${Number(state.myInventory?.tactics?.length || 0)}</b></span>
+              <span>各武将の凸 <b>すべて</b></span>
+              <span>保存済み編成 <b>非公開</b></span>
+            </div>
+          </div>
+          <button type="submit" class="primary-button">相談URLを作成</button>
+          <button type="button" class="secondary-button" data-action="back-to-formations">戻る</button>
+        </form>
+      </div>`,
+    activeNav: "formations",
+    backAction: "back-to-formations",
+    showNav: false,
+  });
+}
+
+function enrichConsultationProposalFormation(formation) {
+  const inventory = state.myInventory?.generals ?? [];
+  return {
+    ...formation,
+    members: (formation.members ?? []).map((member) => {
+      const current = inventory.find((row) => row.qookkaId === member.generalQookkaId);
+      return {
+        ...member,
+        dupeCount: Number(current?.dupeCount || 0),
+        inherentTacticName: current?.inherentTacticName || "",
+      };
+    }),
+  };
+}
+
+function consultationProposalHtml(proposal) {
+  return `
+    <article class="card consultation-proposal-card ${proposal.adopted ? "adopted" : ""}">
+      <div class="consultation-proposal-head">
+        <div><strong>${escapeHtml(proposal.proposerName || "提案者")}</strong><small>${proposal.createdAt ? escapeHtml(formatDateTime(proposal.createdAt)) : ""}</small></div>
+        <span class="privacy-badge ${proposal.adopted ? "shared" : "private"}">${proposal.adopted ? "採用済み" : "未採用"}</span>
+      </div>
+      ${proposal.note ? `<p class="consultation-proposal-note">${escapeHtml(proposal.note)}</p>` : ""}
+      <div class="consultation-proposal-formations">
+        ${(proposal.formations ?? []).map((formation, index) => `
+          <section class="consultation-proposal-formation">
+            <div class="shared-set-card-heading">
+              <div><span class="shared-set-number">${index + 1}</span><strong>${escapeHtml(formation.name || `第${index + 1}軍`)}</strong></div>
+              <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+            </div>
+            <div class="formation-summary">${formationSummaryMembers(enrichConsultationProposalFormation(formation))}</div>
+            ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
+          </section>`).join("")}
+      </div>
+      <div class="button-row consultation-proposal-actions">
+        ${proposal.adopted
+          ? `<span class="muted">この提案はマイ編成へコピー済みです。</span>`
+          : `<button type="button" class="primary-button compact-button" data-action="adopt-formation-consultation-proposal" data-id="${escapeAttr(proposal.id)}">この提案を採用</button>`}
+        <button type="button" class="text-button danger-text" data-action="delete-formation-consultation-proposal" data-id="${escapeAttr(proposal.id)}">提案を削除</button>
+      </div>
+    </article>`;
+}
+
+async function renderFormationConsultationDetail() {
+  const id = state.activeConsultationId;
+  if (!id) { await navigate("formations"); return; }
+  app.innerHTML = pageHtml({
+    title: "編成相談",
+    subtitle: "届いた提案を確認",
+    content: `<div class="page-content"><div class="card"><p class="muted">読み込み中...</p></div></div>`,
+    activeNav: "formations",
+    backAction: "back-to-formations",
+    showNav: false,
+  });
+  try {
+    if (!state.myInventory) await loadMyFormationData({ force: true });
+    const response = await apiRequest("my_formation_consultation_detail", { id });
+    state.activeConsultation = response.consultation;
+    const consultation = state.activeConsultation;
+    const proposals = consultation?.proposals ?? [];
+    app.innerHTML = pageHtml({
+      title: consultation?.title || "編成相談",
+      subtitle: `提案 ${proposals.length}件`,
+      content: `
+        <div class="page-content consultation-detail-page">
+          <div class="card consultation-owner-summary">
+            ${consultation?.note ? `<p>${escapeHtml(consultation.note)}</p>` : `<p class="muted">相談条件は未入力です。</p>`}
+            <div class="button-row">
+              ${consultation?.shareToken ? `<button type="button" class="secondary-button" data-action="copy-formation-consultation" data-token="${escapeAttr(consultation.shareToken)}">相談URLをコピー</button>` : ""}
+              ${consultation?.isActive ? `<button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付を終了</button>` : `<span class="muted">受付終了済み</span>`}
+            </div>
+          </div>
+          <div class="section-heading"><h2>届いた提案</h2><span>${proposals.length}件</span></div>
+          ${proposals.length ? proposals.map(consultationProposalHtml).join("") : `<div class="card empty-state"><strong>まだ提案はありません</strong><p class="muted">相談URLをDiscordなどで共有してください。</p></div>`}
+        </div>`,
+      activeNav: "formations",
+      backAction: "back-to-formations",
+      showNav: false,
+    });
+  } catch (error) {
+    app.innerHTML = pageHtml({
+      title: "編成相談",
+      subtitle: "提案を確認",
+      content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div></div>`,
+      activeNav: "formations",
+      backAction: "back-to-formations",
+      showNav: false,
+    });
+  }
+}
+
+function consultationInventoryFilterControlsHtml(generals) {
+  const { factions, costs } = generalFilterValues(generals);
+  const filters = state.consultationInventoryFilters ?? { star: "all", faction: "all", cost: "all" };
+  return `
+    <div class="inventory-filter-panel consultation-inventory-filters">
+      <label><span>レア度</span><select id="consultation-inventory-star">
+        <option value="all" ${filters.star === "all" ? "selected" : ""}>すべて</option>
+        <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
+        <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
+      </select></label>
+      <label><span>勢力</span><select id="consultation-inventory-faction"><option value="all">すべて</option>${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
+      <label><span>コスト</span><select id="consultation-inventory-cost"><option value="all">すべて</option>${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+      <div class="inventory-result-count"><span>表示中</span><strong id="consultation-inventory-result-count">0件</strong></div>
+    </div>`;
+}
+
+function applyConsultationInventoryFilter() {
+  const filters = state.consultationInventoryFilters ?? { star: "all", faction: "all", cost: "all" };
+  let count = 0;
+  document.querySelectorAll("[data-consultation-general]").forEach((row) => {
+    const visible = generalMatchesFilter({
+      name: row.dataset.consultationGeneral || "",
+      star: row.dataset.star || "",
+      faction: row.dataset.faction || "",
+      cost: row.dataset.cost || "",
+    }, state.consultationInventorySearch, filters);
+    row.hidden = !visible;
+    if (visible) count += 1;
+  });
+  const output = document.getElementById("consultation-inventory-result-count");
+  if (output) output.textContent = `${count}件`;
+}
+
+function consultationInventoryHtml() {
+  const inventory = state.sharedConsultation?.inventory ?? { generals: [], tactics: [], lastImport: null };
+  return `
+    <details class="card consultation-inventory-card" open>
+      <summary><strong>所持武将 ${inventory.generals.length}</strong><span>凸を含む全手持ち</span></summary>
+      <div class="consultation-inventory-body">
+        <input id="consultation-inventory-search" class="choice-search" type="search" placeholder="武将名で検索" value="${escapeAttr(state.consultationInventorySearch)}" />
+        ${consultationInventoryFilterControlsHtml(inventory.generals)}
+        <div class="consultation-general-grid">
+          ${inventory.generals.map((general) => `
+            <div class="consultation-general-item" data-consultation-general="${escapeAttr(general.name)}" data-star="${escapeAttr(general.star ?? "")}" data-faction="${escapeAttr(general.faction ?? "")}" data-cost="${escapeAttr(general.cost ?? "")}">
+              <div><strong>${escapeHtml(general.name)}</strong><small>${general.star ? `★${Number(general.star)} ・ ` : ""}${general.faction ? `${escapeHtml(general.faction)} ・ ` : ""}${general.cost ? `コスト${Number(general.cost)}` : ""}</small></div>
+              <b>${Number(general.dupeCount || 0)}凸</b>
+            </div>`).join("")}
+        </div>
+      </div>
+    </details>
+    <details class="card consultation-inventory-card">
+      <summary><strong>所持戦法 ${inventory.tactics.length}</strong><span>全件</span></summary>
+      <div class="tactic-chip-list">${inventory.tactics.map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}</div>
+    </details>`;
+}
+
+function consultationPickerOptions() {
+  const picker = state.consultationPicker;
+  const inventory = state.sharedConsultation?.inventory;
+  const draft = state.consultationDraft;
+  if (!picker || !inventory || !draft) return [];
+  const source = picker.kind === "general" ? inventory.generals : inventory.tactics;
+  const usedGeneralIds = new Set();
+  const tacticUseCounts = new Map();
+  for (let formationIndex = 0; formationIndex < draft.formations.length; formationIndex += 1) {
+    const formation = draft.formations[formationIndex];
+    for (const member of formation.members ?? []) {
+      if (picker.kind === "general") {
+        if (!(formationIndex === picker.formationIndex && Number(member.slot) === Number(picker.slot)) && member.generalQookkaId) usedGeneralIds.add(member.generalQookkaId);
+        continue;
+      }
+      for (const field of ["tactic1", "tactic2"]) {
+        if (formationIndex === picker.formationIndex && Number(member.slot) === Number(picker.slot) && field === picker.field) continue;
+        const id = field === "tactic1" ? member.tactic1QookkaId : member.tactic2QookkaId;
+        if (id) tacticUseCounts.set(id, (tacticUseCounts.get(id) || 0) + 1);
+      }
+    }
+  }
+  return source
+    .filter((item) => picker.kind === "general" ? !usedGeneralIds.has(item.qookkaId) : (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item))
+    .filter((item) => picker.kind === "general"
+      ? generalMatchesFilter(item, picker.query || "", picker.filters ?? { star: "5", faction: "all", cost: "all" })
+      : !normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || "")))
+    .slice(0, 100);
+}
+
+function consultationPickerListHtml() {
+  const picker = state.consultationPicker;
+  const options = consultationPickerOptions();
+  return options.length ? options.map((item) => `
+    <button type="button" class="choice-option" data-action="select-consultation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
+      <strong>${escapeHtml(item.name)}</strong>
+      ${picker?.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
+    </button>`).join("") : `<div class="choice-empty">候補がありません</div>`;
+}
+
+function consultationPickerFiltersHtml() {
+  const picker = state.consultationPicker;
+  if (!picker || picker.kind !== "general") return "";
+  const { factions, costs } = generalFilterValues(state.sharedConsultation?.inventory?.generals ?? []);
+  const filters = picker.filters ?? { star: "5", faction: "all", cost: "all" };
+  return `<div class="picker-filter-grid">
+    <select id="consultation-picker-star"><option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option><option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option><option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option></select>
+    <select id="consultation-picker-faction"><option value="all">全勢力</option>${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select>
+    <select id="consultation-picker-cost"><option value="all">全コスト</option>${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}</select>
+  </div>`;
+}
+
+function consultationPickerHtml() {
+  const picker = state.consultationPicker;
+  if (!picker) return "";
+  const formation = state.consultationDraft?.formations?.[picker.formationIndex];
+  const member = formation?.members?.find((row) => Number(row.slot) === Number(picker.slot));
+  const current = picker.kind === "general" ? member?.generalName : picker.field === "tactic1" ? member?.tactic1Name : member?.tactic2Name;
+  const title = picker.kind === "general" ? `${formationMemberRole(picker.slot)}の武将` : (picker.field === "tactic1" ? "第1戦法" : "第2戦法");
+  return `
+    <div class="choice-sheet-backdrop" data-action="close-consultation-picker"></div>
+    <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+      <div class="choice-sheet-handle"></div>
+      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>${picker.kind === "tactic" ? "提案セット全体で重複不可 ・ 奮戦のみ2回" : "相談者の所持武将から選択"}</small></div><button type="button" class="icon-button" data-action="close-consultation-picker">×</button></div>
+      <div class="choice-filter-stack"><input id="consultation-picker-search" class="choice-search" type="search" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />${consultationPickerFiltersHtml()}</div>
+      ${current ? `<button type="button" class="clear-choice-button" data-action="clear-consultation-choice">「${escapeHtml(current)}」を解除</button>` : ""}
+      <div id="consultation-picker-list" class="choice-list">${consultationPickerListHtml()}</div>
+    </section>`;
+}
+
+function refreshConsultationPickerOptions() {
+  const list = document.getElementById("consultation-picker-list");
+  if (list) list.innerHTML = consultationPickerListHtml();
+}
+
+function consultationMemberEditorHtml(formationIndex, member) {
+  const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
+  return `
+    <section class="formation-member-editor">
+      <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
+      <button type="button" class="search-choice-button ${member.generalName ? "selected" : ""}" data-action="open-consultation-picker" data-kind="general" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="general"><span>${member.generalName ? escapeHtml(member.generalName) : "武将を選択"}</span><small>検索 ›</small></button>
+      ${general?.inherentTacticName ? `<div class="inherent-display"><span>固有</span><strong>${escapeHtml(general.inherentTacticName)}</strong></div>` : ""}
+      <div class="formation-tactic-grid">
+        <button type="button" class="search-choice-button tactic-choice ${member.tactic1Name ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactic1"><span>${member.tactic1Name ? escapeHtml(member.tactic1Name) : "第1戦法"}</span><small>検索 ›</small></button>
+        <button type="button" class="search-choice-button tactic-choice ${member.tactic2Name ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactic2"><span>${member.tactic2Name ? escapeHtml(member.tactic2Name) : "第2戦法"}</span><small>検索 ›</small></button>
+      </div>
+    </section>`;
+}
+
+function consultationProposalFormationEditorHtml(formation, index) {
+  return `
+    <section class="card consultation-formation-editor">
+      <div class="consultation-formation-heading"><strong>提案 ${index + 1}部隊目</strong>${state.consultationDraft.formations.length > 1 ? `<button type="button" class="text-button danger-text" data-action="remove-consultation-formation" data-index="${index}">この部隊を削除</button>` : ""}</div>
+      <label class="field"><span>編成名</span><input maxlength="60" data-consultation-formation-path="name" data-index="${index}" value="${escapeAttr(formation.name)}" /></label>
+      <div class="two-col">
+        <label class="field"><span>兵種</span><select data-consultation-formation-path="troopType" data-index="${index}"><option value="">未設定</option>${[["infantry","足軽"],["siege","兵器"],["cavalry","馬"],["bow","弓"],["gun","鉄砲"]].map(([value,label]) => `<option value="${value}" ${formation.troopType === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+        <label class="field"><span>兵種Lv</span><select data-consultation-formation-path="troopLevel" data-index="${index}"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(formation.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
+      </div>
+      ${formation.members.map((member) => consultationMemberEditorHtml(index, member)).join("")}
+      <label class="field"><span>部隊メモ（任意）</span><textarea maxlength="500" rows="2" data-consultation-formation-path="note" data-index="${index}">${escapeHtml(formation.note || "")}</textarea></label>
+    </section>`;
+}
+
+function renderFormationConsultationBody() {
+  const consultation = state.sharedConsultation;
+  if (!consultation) return;
+  if (state.consultationSubmitted) {
+    app.innerHTML = pageHtml({
+      title: consultation.title || "編成相談",
+      subtitle: "提案を送信しました",
+      content: `<div class="page-content consultation-public-page"><div class="card consultation-success"><div class="success-mark">✓</div><h2>提案を送信しました</h2><p>相談者のマイ編成は変更していません。相談者が内容を確認して「採用」した場合だけコピーされます。</p><button type="button" class="secondary-button" data-action="new-consultation-proposal">別の案を送る</button></div></div>`,
+      showNav: false,
+    });
+    return;
+  }
+  state.consultationDraft ??= newConsultationProposalDraft();
+  const draft = state.consultationDraft;
+  const inventory = consultation.inventory ?? { generals: [], tactics: [], lastImport: null };
+  app.innerHTML = pageHtml({
+    title: consultation.title || "編成相談",
+    subtitle: "所持武将・戦法から編成案を作成",
+    content: `
+      <div class="page-content consultation-public-page">
+        ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
+        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。保存済みの編成は表示されません。</div>
+        <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
+        ${consultationInventoryHtml()}
+        <div class="section-heading"><h2>編成案を作成</h2><span>1〜5部隊</span></div>
+        <form class="form-stack" data-form="submit-formation-consultation-proposal">
+          <div class="card form-stack">
+            <label class="field"><span>提案者名</span><input name="proposerName" maxlength="40" required data-consultation-path="proposerName" value="${escapeAttr(draft.proposerName)}" placeholder="ゲーム内名など" /></label>
+            <label class="field"><span>提案全体のメモ（任意）</span><textarea name="note" maxlength="1000" rows="3" data-consultation-path="note" placeholder="狙い、運用順、注意点など">${escapeHtml(draft.note)}</textarea></label>
+          </div>
+          ${draft.formations.map(consultationProposalFormationEditorHtml).join("")}
+          <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 5 ? "disabled" : ""}>＋ 提案する部隊を追加</button>
+          <div class="notice subtle">同じ武将は提案セット全体で1回まで。同じ戦法も原則1回までで、<strong>奮戦のみ2回</strong>使用できます。</div>
+          <button type="submit" class="primary-button">この編成案を送信</button>
+        </form>
+      </div>
+      ${consultationPickerHtml()}`,
+    showNav: false,
+  });
+  applyConsultationInventoryFilter();
+  if (state.consultationPicker) window.setTimeout(() => document.getElementById("consultation-picker-search")?.focus(), 30);
+}
+
+async function renderFormationConsultation() {
+  app.innerHTML = pageHtml({
+    title: "編成相談",
+    subtitle: "所持情報を読み込み中",
+    content: `<div class="page-content"><div class="card"><p class="muted">読み込み中...</p></div></div>`,
+    showNav: false,
+  });
+  try {
+    if (!state.consultationToken) throw new Error("相談URLが不正です。");
+    const response = await apiRequest("shared_formation_consultation", { token: state.consultationToken });
+    state.sharedConsultation = response.consultation;
+    state.consultationDraft ??= newConsultationProposalDraft();
+    renderFormationConsultationBody();
+  } catch (error) {
+    app.innerHTML = pageHtml({
+      title: "編成相談",
+      subtitle: "受付終了またはURLが無効です",
+      content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div></div>`,
+      showNav: false,
+    });
+  }
+}
+
 function renderFormationEditor() {
   const draft = state.formationDraft ?? newFormationDraft();
   state.formationDraft = draft;
@@ -3378,7 +3871,7 @@ function renderFormationEditor() {
           </div>
           ${draft.members.map(memberEditorHtml).join("")}
           <div class="card"><label class="field"><span>メモ（任意）</span><textarea name="note" maxlength="500" rows="3" data-formation-path="note" placeholder="運用条件、注意点など">${escapeHtml(draft.note)}</textarea></label></div>
-          <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面の「共有する」を押した編成だけ共有URLが有効になります。</small></div></div>
+          <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面で単体共有するか、まとめ共有に選んだ編成だけ共有URLから閲覧できます。</small></div></div>
           <button type="submit" class="primary-button">編成を保存</button>
           ${draft.id ? `<button type="button" class="text-button danger-text" data-action="delete-my-formation" data-id="${escapeAttr(draft.id)}">この編成を削除</button>` : ""}
         </form>
@@ -3413,6 +3906,61 @@ async function copyText(value) {
     const ok = document.execCommand("copy");
     area.remove();
     return ok;
+  }
+}
+
+
+function shareUrlForFormationSet(token) {
+  if (!token) return "";
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("formation_set", token);
+  return url.toString();
+}
+
+function sharedFormationCardHtml(formation, index) {
+  return `
+    <article class="card shared-formation-card">
+      <div class="shared-set-card-heading">
+        <div><span class="shared-set-number">${index + 1}</span><strong>${escapeHtml(formation.name || "名称未設定の編成")}</strong></div>
+        <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+      </div>
+      <div class="formation-summary large">${formationSummaryMembers(formation)}</div>
+      ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
+      ${formation.updatedAt ? `<small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small>` : ""}
+    </article>`;
+}
+
+async function renderSharedFormationSet() {
+  app.innerHTML = pageHtml({
+    title: "共有編成",
+    subtitle: "複数部隊をまとめて表示",
+    content: `<div class="page-content"><div class="card"><p class="muted">読み込み中...</p></div></div>`,
+    showNav: false,
+  });
+  try {
+    const response = await apiRequest("shared_formation_set", { token: state.shareSetToken });
+    state.sharedFormationSet = response.shareSet;
+    const set = state.sharedFormationSet;
+    const formations = set.formations ?? [];
+    app.innerHTML = pageHtml({
+      title: set.title || "共有編成",
+      subtitle: `${formations.length}編成`,
+      content: `
+        <div class="page-content shared-formation-page shared-formation-set-page">
+          <div class="shared-set-intro"><span class="privacy-badge shared">共有セット</span><strong>${formations.length}編成</strong><small>このURLで共有された編成のみ表示しています。</small></div>
+          ${formations.map(sharedFormationCardHtml).join("")}
+          <button type="button" class="secondary-button" style="width:100%" data-action="close-shared-formation-set">自分の画面へ</button>
+        </div>`,
+      showNav: false,
+    });
+  } catch (error) {
+    app.innerHTML = pageHtml({
+      title: "共有編成",
+      content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div><button type="button" class="secondary-button" style="width:100%;margin-top:12px" data-action="close-shared-formation-set">自分の画面へ</button></div>`,
+      showNav: false,
+    });
   }
 }
 
@@ -3773,6 +4321,29 @@ function scheduleEnemySearch() {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (target.id === "consultation-inventory-search") {
+    state.consultationInventorySearch = target.value;
+    if (!event.isComposing && target.dataset.composing !== "true") applyConsultationInventoryFilter();
+    return;
+  }
+  if (target.id === "consultation-picker-search") {
+    if (state.consultationPicker) {
+      state.consultationPicker.query = target.value;
+      if (!event.isComposing && target.dataset.composing !== "true") refreshConsultationPickerOptions();
+    }
+    return;
+  }
+  const consultationPath = target.dataset?.consultationPath;
+  if (consultationPath && state.consultationDraft) {
+    state.consultationDraft[consultationPath] = target.value;
+    return;
+  }
+  const consultationFormationPath = target.dataset?.consultationFormationPath;
+  if (consultationFormationPath && state.consultationDraft) {
+    const formation = state.consultationDraft.formations?.[Number(target.dataset.index)];
+    if (formation) formation[consultationFormationPath] = target.value;
+    return;
+  }
   if (target.id === "inventory-search") {
     state.inventorySearch = target.value;
     if (!event.isComposing && target.dataset.composing !== "true") applyInventorySearchFilter();
@@ -3833,15 +4404,27 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("compositionstart", (event) => {
   const target = event.target;
-  if (["master-search", "enemy-search", "inventory-search", "formation-picker-search"].includes(target?.id)) {
+  if (["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-inventory-search", "consultation-picker-search"].includes(target?.id)) {
     target.dataset.composing = "true";
   }
 });
 
 document.addEventListener("compositionend", (event) => {
   const target = event.target;
-  if (!["master-search", "enemy-search", "inventory-search", "formation-picker-search"].includes(target?.id)) return;
+  if (!["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-inventory-search", "consultation-picker-search"].includes(target?.id)) return;
   delete target.dataset.composing;
+  if (target.id === "consultation-inventory-search") {
+    state.consultationInventorySearch = target.value;
+    applyConsultationInventoryFilter();
+    return;
+  }
+  if (target.id === "consultation-picker-search") {
+    if (state.consultationPicker) {
+      state.consultationPicker.query = target.value;
+      refreshConsultationPickerOptions();
+    }
+    return;
+  }
   if (target.id === "master-search") {
     state.masterSearch = target.value;
     applyMasterSearchFilter();
@@ -3893,6 +4476,27 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
+  if (["consultation-inventory-star", "consultation-inventory-faction", "consultation-inventory-cost"].includes(target.id)) {
+    const key = target.id === "consultation-inventory-star" ? "star" : target.id === "consultation-inventory-faction" ? "faction" : "cost";
+    state.consultationInventoryFilters[key] = target.value;
+    applyConsultationInventoryFilter();
+    return;
+  }
+  if (["consultation-picker-star", "consultation-picker-faction", "consultation-picker-cost"].includes(target.id)) {
+    if (state.consultationPicker?.kind === "general") {
+      state.consultationPicker.filters ??= { star: "5", faction: "all", cost: "all" };
+      const key = target.id === "consultation-picker-star" ? "star" : target.id === "consultation-picker-faction" ? "faction" : "cost";
+      state.consultationPicker.filters[key] = target.value;
+      refreshConsultationPickerOptions();
+    }
+    return;
+  }
+  const consultationFormationPath = target.dataset?.consultationFormationPath;
+  if (consultationFormationPath && state.consultationDraft) {
+    const formation = state.consultationDraft.formations?.[Number(target.dataset.index)];
+    if (formation) formation[consultationFormationPath] = target.value;
+    return;
+  }
   if (["inventory-star-filter", "inventory-faction-filter", "inventory-cost-filter"].includes(target.id)) {
     const key = target.id === "inventory-star-filter" ? "star" : target.id === "inventory-faction-filter" ? "faction" : "cost";
     state.inventoryFilters[key] = target.value;
@@ -3942,6 +4546,42 @@ document.addEventListener("submit", async (event) => {
   }
 
 
+
+  if (form.dataset.form === "create-formation-consultation") {
+    showLoading("相談URLを作成中...");
+    try {
+      const response = await apiRequest("my_formation_consultation_create", {
+        consultation: { title: formData.get("title"), note: formData.get("note") },
+      });
+      const url = formationConsultationUrl(response.consultation?.shareToken || "");
+      const copied = await copyText(url);
+      showToast(copied ? "編成相談URLを作成してコピーしました。" : "編成相談URLを作成しました。", copied ? "success" : "error");
+      await navigate("formations");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+    return;
+  }
+
+  if (form.dataset.form === "submit-formation-consultation-proposal") {
+    if (!state.consultationDraft || !state.consultationToken) return;
+    state.consultationDraft.proposerName = String(formData.get("proposerName") ?? state.consultationDraft.proposerName ?? "").trim();
+    state.consultationDraft.note = String(formData.get("note") ?? state.consultationDraft.note ?? "").trim();
+    showLoading("編成案を送信中...");
+    try {
+      await apiRequest("formation_consultation_submit", { token: state.consultationToken, proposal: state.consultationDraft });
+      state.consultationSubmitted = true;
+      state.consultationPicker = null;
+      renderFormationConsultationBody();
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+    return;
+  }
 
   if (form.dataset.form === "qookka-sync") {
     showLoading("Qookkaから所持情報を取得中...");
@@ -4055,7 +4695,168 @@ document.addEventListener("click", async (event) => {
   if (action === "back-to-formations") {
     state.formationDraft = null;
     state.formationPicker = null;
+    state.activeConsultation = null;
+    state.activeConsultationId = "";
     await navigate("formations");
+  }
+  if (action === "new-formation-consultation") {
+    if (!state.myInventory?.generals?.length || !state.myInventory?.tactics?.length) {
+      showToast("先に所持武将・所持戦法を同期してください。", "error");
+      return;
+    }
+    await navigate("formation-consultation-create");
+  }
+  if (action === "copy-formation-consultation") {
+    const url = formationConsultationUrl(button.dataset.token || "");
+    const copied = await copyText(url);
+    showToast(copied ? "編成相談URLをコピーしました。" : "相談URLをコピーできませんでした。", copied ? "success" : "error");
+  }
+  if (action === "open-formation-consultation-detail") {
+    state.activeConsultationId = button.dataset.id || "";
+    await navigate("formation-consultation-detail");
+  }
+  if (action === "revoke-formation-consultation") {
+    if (!window.confirm("この編成相談の受付を終了しますか？相談URLから新しい提案は送れなくなります。")) return;
+    showLoading("相談受付を終了中...");
+    try {
+      await apiRequest("my_formation_consultation_revoke", { id: button.dataset.id });
+      showToast("編成相談の受付を終了しました。", "success");
+      state.activeConsultation = null;
+      await navigate("formations");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "adopt-formation-consultation-proposal") {
+    if (!window.confirm("この提案をマイ編成へコピーしますか？既存編成は変更しません。")) return;
+    showLoading("提案をマイ編成へ採用中...");
+    try {
+      const response = await apiRequest("my_formation_consultation_adopt", { proposalId: button.dataset.id });
+      showToast(`${response.formations?.length || 0}部隊をマイ編成へ追加しました。`, "success");
+      await renderFormationConsultationDetail();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "delete-formation-consultation-proposal") {
+    if (!window.confirm("この提案を削除しますか？")) return;
+    showLoading("提案を削除中...");
+    try {
+      await apiRequest("my_formation_consultation_proposal_delete", { proposalId: button.dataset.id });
+      showToast("提案を削除しました。", "success");
+      await renderFormationConsultationDetail();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "new-consultation-proposal") {
+    state.consultationSubmitted = false;
+    state.consultationDraft = newConsultationProposalDraft();
+    state.consultationPicker = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "add-consultation-formation") {
+    if (!state.consultationDraft || state.consultationDraft.formations.length >= 5) return;
+    state.consultationDraft.formations.push(newConsultationProposalFormation(state.consultationDraft.formations.length));
+    renderFormationConsultationBody();
+  }
+  if (action === "remove-consultation-formation") {
+    if (!state.consultationDraft || state.consultationDraft.formations.length <= 1) return;
+    state.consultationDraft.formations.splice(Number(button.dataset.index), 1);
+    state.consultationPicker = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "open-consultation-picker") {
+    const kind = button.dataset.kind === "general" ? "general" : "tactic";
+    state.consultationPicker = {
+      kind,
+      formationIndex: Number(button.dataset.formationIndex),
+      slot: Number(button.dataset.slot),
+      field: button.dataset.field || "general",
+      query: "",
+      filters: kind === "general" ? { star: "5", faction: "all", cost: "all" } : null,
+    };
+    renderFormationConsultationBody();
+  }
+  if (action === "close-consultation-picker") {
+    state.consultationPicker = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "clear-consultation-choice") {
+    const picker = state.consultationPicker;
+    const formation = state.consultationDraft?.formations?.[picker?.formationIndex];
+    const member = formation?.members?.find((row) => Number(row.slot) === Number(picker?.slot));
+    if (!picker || !member) return;
+    if (picker.kind === "general") {
+      member.generalQookkaId = ""; member.generalName = "";
+      member.tactic1QookkaId = ""; member.tactic1Name = "";
+      member.tactic2QookkaId = ""; member.tactic2Name = "";
+    } else if (picker.field === "tactic1") { member.tactic1QookkaId = ""; member.tactic1Name = ""; }
+    else { member.tactic2QookkaId = ""; member.tactic2Name = ""; }
+    state.consultationPicker = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "select-consultation-choice") {
+    const picker = state.consultationPicker;
+    const formation = state.consultationDraft?.formations?.[picker?.formationIndex];
+    const member = formation?.members?.find((row) => Number(row.slot) === Number(picker?.slot));
+    if (!picker || !member) return;
+    const id = button.dataset.id || "";
+    const name = button.dataset.name || "";
+    if (picker.kind === "general") { member.generalQookkaId = id; member.generalName = name; }
+    else if (picker.field === "tactic1") { member.tactic1QookkaId = id; member.tactic1Name = name; }
+    else { member.tactic2QookkaId = id; member.tactic2Name = name; }
+    state.consultationPicker = null;
+    renderFormationConsultationBody();
+  }
+  if (action === "begin-share-formations") {
+    state.formationShareSelection = [];
+    await navigate("formation-share-select");
+  }
+  if (action === "toggle-formation-share-selection") {
+    const id = button.dataset.id || "";
+    const selected = new Set(state.formationShareSelection ?? []);
+    if (selected.has(id)) selected.delete(id);
+    else {
+      if (selected.size >= 20) { showToast("まとめて共有できる編成は20件までです。", "error"); return; }
+      selected.add(id);
+    }
+    state.formationShareSelection = [...selected];
+    renderFormationShareSelector();
+  }
+  if (action === "clear-formation-share-selection") {
+    state.formationShareSelection = [];
+    renderFormationShareSelector();
+  }
+  if (action === "cancel-formation-share-selection") {
+    state.formationShareSelection = [];
+    await navigate("formations");
+  }
+  if (action === "create-formation-share-set") {
+    const ids = [...new Set(state.formationShareSelection ?? [])];
+    if (!ids.length) return;
+    showLoading("共有URLを作成中...");
+    try {
+      const response = await apiRequest("my_formation_share_set_create", { formationIds: ids });
+      const url = shareUrlForFormationSet(response.shareSet?.shareToken || "");
+      const copied = await copyText(url);
+      state.formationShareSelection = [];
+      showToast(copied ? `${ids.length}編成の共有URLを作成してコピーしました。` : "共有URLを作成しました。", copied ? "success" : "error");
+      await navigate("formations");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "copy-formation-share-set") {
+    const url = shareUrlForFormationSet(button.dataset.token || "");
+    const copied = await copyText(url);
+    showToast(copied ? "まとめ共有URLをコピーしました。" : "共有URLをコピーできませんでした。", copied ? "success" : "error");
+  }
+  if (action === "revoke-formation-share-set") {
+    if (!window.confirm("このまとめ共有URLを無効にしますか？")) return;
+    showLoading("共有を解除中...");
+    try {
+      await apiRequest("my_formation_share_set_revoke", { id: button.dataset.id });
+      showToast("まとめ共有を解除しました。", "success");
+      await renderMyFormations();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
   }
   if (action === "new-my-formation") {
     if (!state.myInventory?.generals?.length) { showToast("先に所持情報を同期してください。", "error"); return; }
@@ -4193,6 +4994,14 @@ document.addEventListener("click", async (event) => {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     state.shareToken = "";
     state.sharedFormation = null;
+    await navigate("formations");
+  }
+  if (action === "close-shared-formation-set") {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("formation_set");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    state.shareSetToken = "";
+    state.sharedFormationSet = null;
     await navigate("formations");
   }
 
