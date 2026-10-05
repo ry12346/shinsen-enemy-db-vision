@@ -1,4 +1,4 @@
-const APP_VERSION = "1.7.6";
+const APP_VERSION = "1.8.0";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -59,6 +59,13 @@ const state = {
   currentSeason: "未設定",
   systemStatus: null,
   intel: null,
+  myInventory: null,
+  myFormations: [],
+  inventorySearch: "",
+  formationDraft: null,
+  formationPicker: null,
+  sharedFormation: null,
+  shareToken: "",
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -1150,6 +1157,7 @@ function navHtml(active) {
     ["enemies", "⌕", "敵一覧"],
     ["upload", "＋", "戦報登録"],
     ["intel", "◎", "諜報"],
+    ["formations", "◇", "編成"],
     ["usage", "▥", "使用状況"],
     ["settings", "⚙", "設定"],
   ];
@@ -1341,6 +1349,12 @@ async function initialize() {
 
     state.member = status.member;
     const discordParams = new URLSearchParams(window.location.search);
+    const sharedToken = discordParams.get("formation") || "";
+    if (sharedToken) {
+      state.shareToken = sharedToken;
+      await navigate("shared-formation");
+      return;
+    }
     const discordResult = discordParams.get("discord");
     const discordMessage = discordParams.get("discord_message") || "";
     if (discordResult) {
@@ -1368,6 +1382,10 @@ async function navigate(view) {
   if (view === "enemies") await renderEnemies();
   else if (view === "upload") renderUpload();
   else if (view === "intel") await renderIntel();
+  else if (view === "formations") await renderMyFormations();
+  else if (view === "inventory") await renderMyInventory();
+  else if (view === "formation-edit") renderFormationEditor();
+  else if (view === "shared-formation") await renderSharedFormation();
   else if (view === "usage") await renderUsage();
   else if (view === "settings") await renderSettings();
   else if (view === "masters") await renderMasters();
@@ -2935,6 +2953,408 @@ function renderIntelBody() {
   `;
 }
 
+
+function newFormationDraft() {
+  return {
+    id: "",
+    name: "",
+    troopType: "",
+    troopLevel: "",
+    note: "",
+    isShared: false,
+    shareToken: null,
+    members: [1, 2, 3].map((slot) => ({
+      slot,
+      generalQookkaId: "",
+      generalName: "",
+      tactic1QookkaId: "",
+      tactic1Name: "",
+      tactic2QookkaId: "",
+      tactic2Name: "",
+    })),
+  };
+}
+
+function formationMemberRole(slot) {
+  return slot === 1 ? "大将" : `副将${slot - 1}`;
+}
+
+function cloneFormationForEdit(formation) {
+  const draft = newFormationDraft();
+  if (!formation) return draft;
+  draft.id = formation.id || "";
+  draft.name = formation.name || "";
+  draft.troopType = formation.troopType || "";
+  draft.troopLevel = formation.troopLevel ?? "";
+  draft.note = formation.note || "";
+  draft.isShared = Boolean(formation.isShared);
+  draft.shareToken = formation.shareToken || null;
+  for (const member of formation.members ?? []) {
+    const target = draft.members.find((row) => row.slot === Number(member.slot));
+    if (!target) continue;
+    Object.assign(target, {
+      generalQookkaId: member.generalQookkaId || "",
+      generalName: member.generalName || "",
+      tactic1QookkaId: member.tactic1QookkaId || "",
+      tactic1Name: member.tactic1Name || "",
+      tactic2QookkaId: member.tactic2QookkaId || "",
+      tactic2Name: member.tactic2Name || "",
+    });
+  }
+  return draft;
+}
+
+async function loadMyFormationData({ force = false } = {}) {
+  if (!force && state.myInventory && Array.isArray(state.myFormations)) return;
+  const [inventoryResponse, formationsResponse] = await Promise.all([
+    apiRequest("my_inventory"),
+    apiRequest("my_formations"),
+  ]);
+  state.myInventory = inventoryResponse.inventory ?? { generals: [], tactics: [], lastImport: null };
+  state.myFormations = formationsResponse.formations ?? [];
+}
+
+function qookkaSyncCard() {
+  const last = state.myInventory?.lastImport;
+  return `
+    <div class="card qookka-sync-card">
+      <div class="card-header">
+        <div>
+          <h2>所持情報を同期</h2>
+          <small>Qookka共有URLから武将・戦法を再取得</small>
+        </div>
+      </div>
+      <form class="form-stack" data-form="qookka-sync">
+        <label class="field">
+          <span>Qookka共有URL</span>
+          <input name="url" type="url" inputmode="url" autocomplete="off" required
+            placeholder="https://general.qookkagames.com/...snapshot_id=..." />
+        </label>
+        <button type="submit" class="primary-button">所持情報を更新</button>
+      </form>
+      <p class="muted compact-note">共有URLは同期のためだけに使います。期限切れ後も取得済みデータはDBに残ります。凸は再同期しても上書きしません。</p>
+      ${last ? `<div class="sync-meta">最終同期 ${escapeHtml(formatDateTime(last.importedAt))} ・ 武将${Number(last.generalCount || 0)} ・ 戦法${Number(last.tacticCount || 0)}</div>` : ""}
+    </div>`;
+}
+
+function formationSummaryMembers(formation) {
+  const members = [...(formation?.members ?? [])].sort((a, b) => Number(a.slot) - Number(b.slot));
+  if (!members.length) return `<p class="muted">武将未設定</p>`;
+  return members.map((member) => `
+    <div class="formation-summary-member">
+      <div class="formation-summary-general">
+        <span class="slot-label">${escapeHtml(formationMemberRole(Number(member.slot)))}</span>
+        <strong>${escapeHtml(member.generalName || "未設定")}</strong>
+        ${member.generalName ? `<span class="dupe-text">${Number(member.dupeCount || 0)}凸</span>` : ""}
+      </div>
+      <div class="formation-summary-tactics">
+        ${member.inherentTacticName ? `<span class="inherent-tactic">固有 ${escapeHtml(member.inherentTacticName)}</span>` : ""}
+        ${member.tactic1Name ? `<span>${escapeHtml(member.tactic1Name)}</span>` : ""}
+        ${member.tactic2Name ? `<span>${escapeHtml(member.tactic2Name)}</span>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+async function renderMyFormations() {
+  app.innerHTML = pageHtml({
+    title: "マイ編成",
+    subtitle: "非公開で保存・必要な編成だけ共有",
+    content: `<div class="page-content"><div class="card"><p class="muted">読み込み中...</p></div></div>`,
+    activeNav: "formations",
+  });
+  try {
+    await loadMyFormationData({ force: true });
+    renderMyFormationsBody();
+  } catch (error) {
+    app.innerHTML = pageHtml({
+      title: "マイ編成",
+      subtitle: "非公開で保存・必要な編成だけ共有",
+      content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div></div>`,
+      activeNav: "formations",
+    });
+  }
+}
+
+function renderMyFormationsBody() {
+  const inventory = state.myInventory ?? { generals: [], tactics: [] };
+  const hasInventory = (inventory.generals?.length ?? 0) > 0 || (inventory.tactics?.length ?? 0) > 0;
+  const formationCards = state.myFormations.length
+    ? state.myFormations.map((formation) => `
+      <article class="card formation-card">
+        <div class="formation-card-head">
+          <div>
+            <div class="formation-title-row">
+              <h2>${escapeHtml(formation.name || "名称未設定の編成")}</h2>
+              <span class="privacy-badge ${formation.isShared ? "shared" : "private"}">${formation.isShared ? "共有中" : "非公開"}</span>
+            </div>
+            <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+          </div>
+        </div>
+        <div class="formation-summary">${formationSummaryMembers(formation)}</div>
+        ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
+        <div class="button-row formation-actions">
+          <button type="button" class="secondary-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編集</button>
+          ${formation.isShared
+            ? `<button type="button" class="primary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">共有URLをコピー</button>
+               <button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">共有解除</button>`
+            : `<button type="button" class="primary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">共有する</button>`}
+        </div>
+      </article>`).join("")
+    : `<div class="card empty-state"><strong>まだ編成がありません</strong><p class="muted">所持情報を同期して、自分の編成を登録してください。</p></div>`;
+
+  app.innerHTML = pageHtml({
+    title: "マイ編成",
+    subtitle: "非公開で保存・必要な編成だけ共有",
+    content: `
+      <div class="page-content formation-page">
+        <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>所持情報と編成は初期状態では本人だけ</strong><small>「共有する」を押した編成だけ専用URLで閲覧できます。</small></div></div>
+        ${qookkaSyncCard()}
+        <div class="inventory-shortcut card">
+          <div><strong>所持 武将${inventory.generals?.length ?? 0} / 戦法${inventory.tactics?.length ?? 0}</strong><small>凸はQookkaと別管理</small></div>
+          <button type="button" class="secondary-button" data-action="navigate" data-view="inventory">所持・凸を編集</button>
+        </div>
+        <button type="button" class="primary-button create-formation-button" data-action="new-my-formation" ${hasInventory ? "" : "disabled"}>＋ 新しい編成</button>
+        ${!hasInventory ? `<div class="notice warning">先にQookka共有URLから所持情報を同期してください。</div>` : ""}
+        <div class="section-heading"><h2>保存した編成</h2><span>${state.myFormations.length}件</span></div>
+        ${formationCards}
+      </div>`,
+    activeNav: "formations",
+  });
+}
+
+async function renderMyInventory() {
+  if (!state.myInventory) {
+    try { await loadMyFormationData({ force: true }); }
+    catch (error) { showToast(error.message, "error"); }
+  }
+  renderMyInventoryBody();
+}
+
+function dupeControlHtml(general) {
+  const value = Math.max(0, Math.min(5, Number(general.dupeCount || 0)));
+  return `
+    <div class="dupe-control" data-dupe-id="${escapeAttr(general.qookkaId)}">
+      <div class="dupe-control-top"><span>凸</span><strong data-dupe-label>${value}凸</strong></div>
+      <div class="dupe-dots" role="group" aria-label="${escapeAttr(general.name)}の凸数">
+        ${[1,2,3,4,5].map((step) => `<button type="button" class="dupe-dot-button ${step <= value ? "active" : ""}" data-action="set-my-dupe" data-id="${escapeAttr(general.qookkaId)}" data-value="${step}" aria-label="${step}凸" aria-pressed="${step <= value ? "true" : "false"}"><span class="dupe-dot-shape" aria-hidden="true"></span></button>`).join("")}
+      </div>
+    </div>`;
+}
+
+function applyInventorySearchFilter() {
+  const query = normalizeSearchText(state.inventorySearch);
+  document.querySelectorAll("[data-inventory-general]").forEach((row) => {
+    const haystack = normalizeSearchText(row.dataset.inventoryGeneral || "");
+    row.hidden = Boolean(query && !haystack.includes(query));
+  });
+}
+
+function renderMyInventoryBody() {
+  const inventory = state.myInventory ?? { generals: [], tactics: [], lastImport: null };
+  app.innerHTML = pageHtml({
+    title: "所持・凸",
+    subtitle: `武将${inventory.generals.length} / 戦法${inventory.tactics.length}`,
+    content: `
+      <div class="page-content inventory-page">
+        ${qookkaSyncCard()}
+        <div class="card">
+          <div class="card-header"><div><h2>所持武将</h2><small>○をタップして凸を設定</small></div></div>
+          <label class="field compact-search"><span>武将を検索</span><input id="inventory-search" type="search" value="${escapeAttr(state.inventorySearch)}" placeholder="武将名で絞り込み" /></label>
+          <div class="inventory-general-list">
+            ${inventory.generals.length ? inventory.generals.map((general) => `
+              <div class="inventory-general-row" data-inventory-general="${escapeAttr(general.name)}">
+                <div class="inventory-general-name"><strong>${escapeHtml(general.name)}</strong>${general.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>
+                ${dupeControlHtml(general)}
+              </div>`).join("") : `<p class="muted">所持武将が未同期です。</p>`}
+          </div>
+          <p class="muted compact-note">例：3つ目をタップすると左から3個が赤丸になります。同じ3つ目をもう一度タップすると0凸へ戻ります。</p>
+        </div>
+        <details class="card inventory-tactics-card">
+          <summary><strong>所持戦法 ${inventory.tactics.length}</strong><span>一覧を見る</span></summary>
+          <div class="tactic-chip-list">${inventory.tactics.map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}</div>
+        </details>
+      </div>`,
+    activeNav: "formations",
+    backAction: "back-to-formations",
+  });
+  applyInventorySearchFilter();
+}
+
+function currentPickerOptions() {
+  const picker = state.formationPicker;
+  if (!picker || !state.myInventory) return [];
+  const source = picker.kind === "general" ? state.myInventory.generals : state.myInventory.tactics;
+  const query = normalizeSearchText(picker.query || "");
+  const currentMember = state.formationDraft?.members?.find((row) => row.slot === Number(picker.slot));
+  const currentId = picker.kind === "general"
+    ? currentMember?.generalQookkaId
+    : picker.field === "tactic1" ? currentMember?.tactic1QookkaId : currentMember?.tactic2QookkaId;
+  const usedIds = new Set();
+  if (picker.kind === "general") {
+    for (const row of state.formationDraft?.members ?? []) if (row.generalQookkaId && row.generalQookkaId !== currentId) usedIds.add(row.generalQookkaId);
+  } else {
+    for (const row of state.formationDraft?.members ?? []) {
+      for (const id of [row.tactic1QookkaId, row.tactic2QookkaId]) if (id && id !== currentId) usedIds.add(id);
+    }
+  }
+  return source
+    .filter((item) => !usedIds.has(item.qookkaId))
+    .filter((item) => !query || normalizeSearchText(item.name).includes(query))
+    .slice(0, 80);
+}
+
+function formationPickerListHtml() {
+  const picker = state.formationPicker;
+  if (!picker) return "";
+  const options = currentPickerOptions();
+  return options.length
+    ? options.map((item) => `
+      <button type="button" class="choice-option" data-action="select-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
+        <strong>${escapeHtml(item.name)}</strong>
+        ${picker.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
+      </button>`).join("")
+    : `<div class="choice-empty">候補がありません</div>`;
+}
+
+function currentFormationPickerSelection() {
+  const picker = state.formationPicker;
+  const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
+  if (!picker || !member) return "";
+  if (picker.kind === "general") return member.generalName || "";
+  return picker.field === "tactic1" ? (member.tactic1Name || "") : (member.tactic2Name || "");
+}
+
+function formationPickerHtml() {
+  const picker = state.formationPicker;
+  if (!picker) return "";
+  const title = picker.kind === "general" ? `${formationMemberRole(picker.slot)}の武将` : `${picker.field === "tactic1" ? "第1戦法" : "第2戦法"}`;
+  const currentSelection = currentFormationPickerSelection();
+  return `
+    <div class="choice-sheet-backdrop" data-action="close-formation-picker"></div>
+    <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+      <div class="choice-sheet-handle" aria-hidden="true"></div>
+      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>所持中から検索</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
+      <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
+      ${currentSelection ? `<button type="button" class="clear-choice-button" data-action="clear-formation-choice">「${escapeHtml(currentSelection)}」を解除</button>` : ""}
+      <div id="formation-picker-list" class="choice-list">${formationPickerListHtml()}</div>
+    </section>`;
+}
+
+function refreshFormationPickerOptions() {
+  const list = document.getElementById("formation-picker-list");
+  if (list) list.innerHTML = formationPickerListHtml();
+}
+
+function memberEditorHtml(member) {
+  const general = state.myInventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
+  return `
+    <section class="formation-member-editor">
+      <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
+      <button type="button" class="search-choice-button ${member.generalName ? "selected" : ""}" data-action="open-formation-picker" data-kind="general" data-slot="${member.slot}" data-field="general">
+        <span>${member.generalName ? escapeHtml(member.generalName) : "武将を選択"}</span><small>検索 ›</small>
+      </button>
+      ${general?.inherentTacticName ? `<div class="inherent-display"><span>固有</span><strong>${escapeHtml(general.inherentTacticName)}</strong></div>` : ""}
+      <div class="formation-tactic-grid">
+        <button type="button" class="search-choice-button tactic-choice ${member.tactic1Name ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactic1"><span>${member.tactic1Name ? escapeHtml(member.tactic1Name) : "第1戦法"}</span><small>検索 ›</small></button>
+        <button type="button" class="search-choice-button tactic-choice ${member.tactic2Name ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactic2"><span>${member.tactic2Name ? escapeHtml(member.tactic2Name) : "第2戦法"}</span><small>検索 ›</small></button>
+      </div>
+    </section>`;
+}
+
+function renderFormationEditor() {
+  const draft = state.formationDraft ?? newFormationDraft();
+  state.formationDraft = draft;
+  app.innerHTML = pageHtml({
+    title: draft.id ? "編成を編集" : "新しい編成",
+    subtitle: "所持武将・所持戦法から選択",
+    content: `
+      <div class="page-content formation-editor-page">
+        <form class="form-stack" data-form="save-my-formation">
+          <div class="card form-stack">
+            <label class="field"><span>編成名</span><input name="name" maxlength="60" data-formation-path="name" value="${escapeAttr(draft.name)}" placeholder="例：対計略・第1軍" /></label>
+            <div class="two-col">
+              <label class="field"><span>兵種</span><select name="troopType" data-formation-path="troopType">
+                <option value="">未設定</option>
+                ${[["infantry","足軽"],["siege","兵器"],["cavalry","馬"],["bow","弓"],["gun","鉄砲"]].map(([value,label]) => `<option value="${value}" ${draft.troopType === value ? "selected" : ""}>${label}</option>`).join("")}
+              </select></label>
+              <label class="field"><span>兵種Lv</span><select name="troopLevel" data-formation-path="troopLevel"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(draft.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
+            </div>
+          </div>
+          ${draft.members.map(memberEditorHtml).join("")}
+          <div class="card"><label class="field"><span>メモ（任意）</span><textarea name="note" maxlength="500" rows="3" data-formation-path="note" placeholder="運用条件、注意点など">${escapeHtml(draft.note)}</textarea></label></div>
+          <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面の「共有する」を押した編成だけ共有URLが有効になります。</small></div></div>
+          <button type="submit" class="primary-button">編成を保存</button>
+          ${draft.id ? `<button type="button" class="text-button danger-text" data-action="delete-my-formation" data-id="${escapeAttr(draft.id)}">この編成を削除</button>` : ""}
+        </form>
+      </div>
+      ${formationPickerHtml()}`,
+    activeNav: "formations",
+    backAction: "back-to-formations",
+    showNav: false,
+  });
+  if (state.formationPicker) window.setTimeout(() => document.getElementById("formation-picker-search")?.focus(), 30);
+}
+
+function shareUrlForFormation(formation) {
+  if (!formation?.shareToken) return "";
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("formation", formation.shareToken);
+  return url.toString();
+}
+
+async function copyText(value) {
+  if (!value) return false;
+  try { await navigator.clipboard.writeText(value); return true; }
+  catch {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  }
+}
+
+async function renderSharedFormation() {
+  app.innerHTML = pageHtml({
+    title: "共有編成",
+    subtitle: "共有された部隊情報",
+    content: `<div class="page-content"><div class="card"><p class="muted">読み込み中...</p></div></div>`,
+    showNav: false,
+  });
+  try {
+    const response = await apiRequest("shared_formation", { token: state.shareToken });
+    state.sharedFormation = response.formation;
+    const formation = state.sharedFormation;
+    app.innerHTML = pageHtml({
+      title: formation.name || "共有編成",
+      subtitle: observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定",
+      content: `
+        <div class="page-content shared-formation-page">
+          <div class="card shared-formation-card">
+            <div class="privacy-badge shared">共有編成</div>
+            <div class="formation-summary large">${formationSummaryMembers(formation)}</div>
+            ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
+            <small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small>
+          </div>
+          <button type="button" class="secondary-button" style="width:100%" data-action="close-shared-formation">自分の画面へ</button>
+        </div>`,
+      showNav: false,
+    });
+  } catch (error) {
+    app.innerHTML = pageHtml({
+      title: "共有編成",
+      content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div><button type="button" class="secondary-button" style="width:100%;margin-top:12px" data-action="close-shared-formation">自分の画面へ</button></div>`,
+      showNav: false,
+    });
+  }
+}
+
 async function renderUsage() {
   app.innerHTML = pageHtml({
     title: "OCR使用状況",
@@ -3251,6 +3671,20 @@ function scheduleEnemySearch() {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (target.id === "inventory-search") {
+    state.inventorySearch = target.value;
+    if (!event.isComposing && target.dataset.composing !== "true") applyInventorySearchFilter();
+    return;
+  }
+  if (target.id === "formation-picker-search") {
+    if (state.formationPicker) { state.formationPicker.query = target.value; refreshFormationPickerOptions(); }
+    return;
+  }
+  const formationPath = target.dataset?.formationPath;
+  if (formationPath && state.formationDraft) {
+    state.formationDraft[formationPath] = target.value;
+    return;
+  }
   if (target.id === "enemy-search") {
     state.enemySearch = target.value;
     if (!event.isComposing && target.dataset.composing !== "true") {
@@ -3294,18 +3728,23 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("compositionstart", (event) => {
   const target = event.target;
-  if (target?.id === "master-search" || target?.id === "enemy-search") {
+  if (["master-search", "enemy-search", "inventory-search"].includes(target?.id)) {
     target.dataset.composing = "true";
   }
 });
 
 document.addEventListener("compositionend", (event) => {
   const target = event.target;
-  if (target?.id !== "master-search" && target?.id !== "enemy-search") return;
+  if (!["master-search", "enemy-search", "inventory-search"].includes(target?.id)) return;
   delete target.dataset.composing;
   if (target.id === "master-search") {
     state.masterSearch = target.value;
     applyMasterSearchFilter();
+    return;
+  }
+  if (target.id === "inventory-search") {
+    state.inventorySearch = target.value;
+    applyInventorySearchFilter();
     return;
   }
   state.enemySearch = target.value;
@@ -3376,6 +3815,51 @@ document.addEventListener("submit", async (event) => {
   }
 
 
+
+  if (form.dataset.form === "qookka-sync") {
+    showLoading("Qookkaから所持情報を取得中...");
+    try {
+      const response = await apiRequest("my_inventory_sync", { url: formData.get("url") });
+      state.myInventory = response.inventory;
+      const result = response.result ?? {};
+      const changes = [
+        ...(result.addedGenerals ?? []).map((name) => `武将 +${name}`),
+        ...(result.removedGenerals ?? []).map((name) => `武将 -${name}`),
+        ...(result.addedTactics ?? []).map((name) => `戦法 +${name}`),
+        ...(result.removedTactics ?? []).map((name) => `戦法 -${name}`),
+      ];
+      showToast(`同期完了：武将${result.generalCount ?? 0} / 戦法${result.tacticCount ?? 0}${changes.length ? `（変更${changes.length}件）` : "（変更なし）"}`, "success");
+      if (state.view === "inventory") renderMyInventoryBody();
+      else if (state.view === "formations") { state.myFormations = (await apiRequest("my_formations")).formations ?? []; renderMyFormationsBody(); }
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+    return;
+  }
+
+  if (form.dataset.form === "save-my-formation") {
+    if (!state.formationDraft) return;
+    showLoading("編成を保存中...");
+    try {
+      state.formationDraft.name = String(formData.get("name") ?? "").trim();
+      state.formationDraft.note = String(formData.get("note") ?? "").trim();
+      state.formationDraft.troopType = String(formData.get("troopType") ?? "");
+      state.formationDraft.troopLevel = formData.get("troopLevel") ? Number(formData.get("troopLevel")) : null;
+      await apiRequest("my_formation_save", { formation: state.formationDraft });
+      state.formationDraft = null;
+      state.formationPicker = null;
+      showToast("編成を保存しました。", "success");
+      await navigate("formations");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      hideLoading();
+    }
+    return;
+  }
+
   if (form.dataset.form === "add-master-entry") {
     showLoading("マスタへ追加中...");
     try {
@@ -3441,6 +3925,148 @@ document.addEventListener("click", async (event) => {
   if (action === "reload-app") window.location.reload();
   if (action === "navigate") await navigate(button.dataset.view);
   if (action === "back-to-settings") await navigate("settings");
+  if (action === "back-to-formations") {
+    state.formationDraft = null;
+    state.formationPicker = null;
+    await navigate("formations");
+  }
+  if (action === "new-my-formation") {
+    if (!state.myInventory?.generals?.length) { showToast("先に所持情報を同期してください。", "error"); return; }
+    state.formationDraft = newFormationDraft();
+    state.formationPicker = null;
+    await navigate("formation-edit");
+  }
+  if (action === "edit-my-formation") {
+    const formation = state.myFormations.find((row) => row.id === button.dataset.id);
+    if (!formation) return;
+    state.formationDraft = cloneFormationForEdit(formation);
+    state.formationPicker = null;
+    await navigate("formation-edit");
+  }
+  if (action === "open-formation-picker") {
+    state.formationPicker = {
+      kind: button.dataset.kind === "general" ? "general" : "tactic",
+      slot: Number(button.dataset.slot),
+      field: button.dataset.field || "general",
+      query: "",
+    };
+    renderFormationEditor();
+  }
+  if (action === "close-formation-picker") {
+    state.formationPicker = null;
+    renderFormationEditor();
+  }
+  if (action === "clear-formation-choice") {
+    const picker = state.formationPicker;
+    const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
+    if (!picker || !member) return;
+    if (picker.kind === "general") {
+      member.generalQookkaId = "";
+      member.generalName = "";
+      member.tactic1QookkaId = "";
+      member.tactic1Name = "";
+      member.tactic2QookkaId = "";
+      member.tactic2Name = "";
+    } else if (picker.field === "tactic1") {
+      member.tactic1QookkaId = "";
+      member.tactic1Name = "";
+    } else {
+      member.tactic2QookkaId = "";
+      member.tactic2Name = "";
+    }
+    state.formationPicker = null;
+    renderFormationEditor();
+  }
+  if (action === "select-formation-choice") {
+    const picker = state.formationPicker;
+    const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
+    if (!picker || !member) return;
+    const id = button.dataset.id || "";
+    const name = button.dataset.name || "";
+    if (picker.kind === "general") {
+      member.generalQookkaId = id;
+      member.generalName = name;
+    } else if (picker.field === "tactic1") {
+      member.tactic1QookkaId = id;
+      member.tactic1Name = name;
+    } else {
+      member.tactic2QookkaId = id;
+      member.tactic2Name = name;
+    }
+    state.formationPicker = null;
+    renderFormationEditor();
+  }
+  if (action === "set-my-dupe") {
+    const general = state.myInventory?.generals?.find((row) => row.qookkaId === button.dataset.id);
+    if (!general) return;
+    const selected = Number(button.dataset.value);
+    const previous = Number(general.dupeCount || 0);
+    const next = previous === selected ? 0 : selected;
+    general.dupeCount = next;
+    const control = button.closest(".dupe-control");
+    control?.querySelectorAll(".dupe-dot-button").forEach((dot) => {
+      const active = Number(dot.dataset.value) <= next;
+      dot.classList.toggle("active", active);
+      dot.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    const label = control?.querySelector("[data-dupe-label]");
+    if (label) label.textContent = `${next}凸`;
+    try {
+      await apiRequest("my_general_dupe", { qookkaId: general.qookkaId, dupeCount: next });
+    } catch (error) {
+      general.dupeCount = previous;
+      showToast(error.message, "error");
+      renderMyInventoryBody();
+    }
+  }
+  if (action === "delete-my-formation") {
+    if (!window.confirm("この編成を削除しますか？共有URLも無効になります。")) return;
+    showLoading("編成を削除中...");
+    try {
+      await apiRequest("my_formation_delete", { id: button.dataset.id });
+      state.formationDraft = null;
+      showToast("編成を削除しました。", "success");
+      await navigate("formations");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "share-my-formation") {
+    showLoading("共有URLを発行中...");
+    try {
+      const response = await apiRequest("my_formation_share", { id: button.dataset.id });
+      const url = shareUrlForFormation(response.formation);
+      const copied = await copyText(url);
+      showToast(copied ? "共有URLを発行してコピーしました。" : "共有URLを発行しました。コピーできないため編成一覧から再度コピーしてください。", copied ? "success" : "error");
+      await renderMyFormations();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "copy-formation-link") {
+    const formation = state.myFormations.find((row) => row.id === button.dataset.id);
+    const url = shareUrlForFormation(formation);
+    if (!url) { showToast("共有URLがありません。", "error"); return; }
+    const copied = await copyText(url);
+    showToast(copied ? "共有URLをコピーしました。" : "共有URLをコピーできませんでした。", copied ? "success" : "error");
+  }
+  if (action === "unshare-my-formation") {
+    if (!window.confirm("共有を解除しますか？現在の共有URLは無効になります。")) return;
+    showLoading("共有を解除中...");
+    try {
+      await apiRequest("my_formation_unshare", { id: button.dataset.id });
+      showToast("共有を解除しました。", "success");
+      await renderMyFormations();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "close-shared-formation") {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("formation");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    state.shareToken = "";
+    state.sharedFormation = null;
+    await navigate("formations");
+  }
+
   if (action === "dismiss-intel-result") {
     const dialog = button.closest("dialog");
     if (dialog?.close) dialog.close();
