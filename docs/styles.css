@@ -3304,3 +3304,77 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ==========================================================
+   v1.9.2 まとめ選択UI
+   ========================================================== */
+.multi-choice-sheet {
+  max-height: min(88dvh, 800px);
+  grid-template-rows: auto auto auto auto minmax(0,1fr) auto;
+}
+.choice-option.multi-selected {
+  border-color: rgba(215,177,91,.48);
+  background: rgba(207,169,86,.12);
+}
+.choice-option-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.choice-selection-badge {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(207,169,86,.16);
+  color: #e0c780 !important;
+  font-size: .66rem !important;
+  font-weight: 800;
+}
+.multi-choice-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 6px;
+}
+.multi-choice-summary > span {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(213,224,240,.09);
+  border-radius: 10px;
+  background: rgba(5,10,17,.42);
+  display: grid;
+  gap: 2px;
+}
+.multi-choice-summary small { color: #c9b77e; font-size: .62rem; }
+.multi-choice-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .74rem; }
+.multi-choice-summary.empty { display:block; color:var(--muted); font-size:.72rem; padding:4px 2px; }
+.multi-choice-footer {
+  display: grid;
+  grid-template-columns: minmax(0,.7fr) minmax(0,1.3fr);
+  gap: 8px;
+  padding-top: 2px;
+}
+.formation-general-batch-button { margin-bottom: 2px; }
+.formation-general-batch-button > span,
+.tactic-batch-choice > span { display:grid; gap:3px; min-width:0; }
+.formation-general-batch-button b,
+.tactic-batch-choice b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.84rem; }
+.formation-general-batch-button span small,
+.tactic-batch-choice span small { font-size:.65rem; }
+.selected-general-display {
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid rgba(213,224,240,.08);
+  border-radius: 12px;
+  background: rgba(6,12,20,.32);
+  display: grid;
+  gap: 3px;
+}
+.selected-general-display > span { font-weight: 780; color: var(--text); }
+.selected-general-display > small { color: var(--muted); font-size: .68rem; }
+.selected-general-display:not(.selected) > span { color: var(--muted); font-weight: 600; }
+@media (max-width: 430px) {
+  .multi-choice-summary { grid-template-columns: 1fr; }
+  .multi-choice-sheet { max-height: 92dvh; }
+}

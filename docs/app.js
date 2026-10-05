@@ -1,4 +1,4 @@
-const APP_VERSION = "1.9.1";
+const APP_VERSION = "1.9.2";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -68,6 +68,7 @@ const state = {
   inventoryFilters: { star: "5", faction: "all", cost: "all" },
   formationDraft: null,
   formationPicker: null,
+  formationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
   sharedFormation: null,
   shareToken: "",
   sharedFormationSet: null,
@@ -3337,59 +3338,76 @@ function currentPickerOptions() {
   if (!picker || !state.myInventory) return [];
   const source = picker.kind === "general" ? state.myInventory.generals : state.myInventory.tactics;
   const query = normalizeSearchText(picker.query || "");
-  const usedGeneralIds = new Set();
+  const selectedIds = picker.selectedIds ?? [];
+  const selectedSet = new Set(selectedIds);
   const tacticUseCounts = new Map();
 
-  for (const row of state.formationDraft?.members ?? []) {
-    if (picker.kind === "general") {
-      if (row.slot !== Number(picker.slot) && row.generalQookkaId) usedGeneralIds.add(row.generalQookkaId);
-      continue;
-    }
-    for (const field of ["tactic1", "tactic2"]) {
-      if (row.slot === Number(picker.slot) && field === picker.field) continue;
-      const id = field === "tactic1" ? row.tactic1QookkaId : row.tactic2QookkaId;
-      if (id) tacticUseCounts.set(id, (tacticUseCounts.get(id) || 0) + 1);
+  if (picker.kind === "tactic") {
+    for (const row of state.formationDraft?.members ?? []) {
+      if (Number(row.slot) === Number(picker.slot)) continue;
+      for (const field of ["tactic1", "tactic2"]) {
+        const id = field === "tactic1" ? row.tactic1QookkaId : row.tactic2QookkaId;
+        if (id) tacticUseCounts.set(id, (tacticUseCounts.get(id) || 0) + 1);
+      }
     }
   }
 
   return source
     .filter((item) => {
-      if (picker.kind === "general") return !usedGeneralIds.has(item.qookkaId);
+      if (picker.kind === "general") return true;
+      if (selectedSet.has(item.qookkaId)) return true;
       return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
     })
     .filter((item) => {
       if (picker.kind !== "general") return !query || normalizeSearchText(item.name).includes(query);
-      const filters = picker.filters ?? { star: "5", faction: "all", cost: "all" };
+      const filters = picker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
       return generalMatchesFilter(item, picker.query || "", filters);
     })
-    .slice(0, 80);
+    .slice(0, 100);
+}
+
+function formationPickerSelectionLabel(picker, itemId) {
+  const index = (picker?.selectedIds ?? []).indexOf(itemId);
+  if (index < 0) return "";
+  if (picker.kind === "general") return formationMemberRole(index + 1);
+  return index === 0 ? "第1戦法" : "第2戦法";
 }
 
 function formationPickerListHtml() {
   const picker = state.formationPicker;
   if (!picker) return "";
   const options = currentPickerOptions();
+  const selectedIds = picker.selectedIds ?? [];
   return options.length
-    ? options.map((item) => `
-      <button type="button" class="choice-option" data-action="select-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
-        <strong>${escapeHtml(item.name)}</strong>
+    ? options.map((item) => {
+      const selectionLabel = formationPickerSelectionLabel(picker, item.qookkaId);
+      const selected = selectedIds.includes(item.qookkaId);
+      return `
+      <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}">
+        <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
         ${picker.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
-      </button>`).join("")
+      </button>`;
+    }).join("")
     : `<div class="choice-empty">候補がありません</div>`;
 }
 
-function currentFormationPickerSelection() {
+function formationPickerSelectedSummaryHtml() {
   const picker = state.formationPicker;
-  const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
-  if (!picker || !member) return "";
-  if (picker.kind === "general") return member.generalName || "";
-  return picker.field === "tactic1" ? (member.tactic1Name || "") : (member.tactic2Name || "");
+  if (!picker) return "";
+  const source = picker.kind === "general" ? (state.myInventory?.generals ?? []) : (state.myInventory?.tactics ?? []);
+  const labels = (picker.selectedIds ?? []).map((id, index) => {
+    const item = source.find((row) => row.qookkaId === id);
+    if (!item) return "";
+    const role = picker.kind === "general" ? formationMemberRole(index + 1) : (index === 0 ? "第1" : "第2");
+    return `<span><small>${escapeHtml(role)}</small><strong>${escapeHtml(item.name)}</strong></span>`;
+  }).filter(Boolean);
+  return labels.length ? `<div class="multi-choice-summary">${labels.join("")}</div>` : `<div class="multi-choice-summary empty">未選択</div>`;
 }
 
 function formationPickerGeneralFiltersHtml() {
   if (!state.formationPicker || state.formationPicker.kind !== "general") return "";
   const { factions, costs } = generalFilterValues(state.myInventory?.generals ?? []);
-  const filters = state.formationPicker.filters ?? { star: "5", faction: "all", cost: "all" };
+  const filters = state.formationPicker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
   return `
     <div class="picker-filter-grid">
       <select id="formation-picker-star" aria-label="レア度">
@@ -3411,41 +3429,53 @@ function formationPickerGeneralFiltersHtml() {
 function formationPickerHtml() {
   const picker = state.formationPicker;
   if (!picker) return "";
-  const title = picker.kind === "general" ? `${formationMemberRole(picker.slot)}の武将` : `${picker.field === "tactic1" ? "第1戦法" : "第2戦法"}`;
-  const currentSelection = currentFormationPickerSelection();
+  const title = picker.kind === "general" ? "武将をまとめて選択" : `${formationMemberRole(picker.slot)}の戦法を選択`;
+  const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-formation-picker"></div>
-    <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle" aria-hidden="true"></div>
-      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>${picker.kind === "tactic" ? "所持中から検索 ・ 奮戦のみ2回まで使用可" : "所持中から検索"}</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
+      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
+      ${formationPickerSelectedSummaryHtml()}
       <div class="choice-filter-stack">
         <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
         ${formationPickerGeneralFiltersHtml()}
       </div>
-      ${currentSelection ? `<button type="button" class="clear-choice-button" data-action="clear-formation-choice">「${escapeHtml(currentSelection)}」を解除</button>` : ""}
       <div id="formation-picker-list" class="choice-list">${formationPickerListHtml()}</div>
+      <div class="multi-choice-footer"><button type="button" class="secondary-button" data-action="clear-formation-multi-choice">選択解除</button><button type="button" class="primary-button" data-action="confirm-formation-multi-choice">決定</button></div>
     </section>`;
 }
 
 function refreshFormationPickerOptions() {
   const list = document.getElementById("formation-picker-list");
   if (list) list.innerHTML = formationPickerListHtml();
+  const summary = document.querySelector(".multi-choice-summary");
+  if (summary) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = formationPickerSelectedSummaryHtml();
+    summary.replaceWith(wrapper.firstElementChild);
+  }
 }
 
 function memberEditorHtml(member) {
   const general = state.myInventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
+  const tacticSummary = [member.tactic1Name, member.tactic2Name].filter(Boolean).join(" / ") || "戦法を選択";
   return `
     <section class="formation-member-editor">
       <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
-      <button type="button" class="search-choice-button ${member.generalName ? "selected" : ""}" data-action="open-formation-picker" data-kind="general" data-slot="${member.slot}" data-field="general">
-        <span>${member.generalName ? escapeHtml(member.generalName) : "武将を選択"}</span><small>検索 ›</small>
-      </button>
-      ${general?.inherentTacticName ? `<div class="inherent-display"><span>固有</span><strong>${escapeHtml(general.inherentTacticName)}</strong></div>` : ""}
-      <div class="formation-tactic-grid">
-        <button type="button" class="search-choice-button tactic-choice ${member.tactic1Name ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactic1"><span>${member.tactic1Name ? escapeHtml(member.tactic1Name) : "第1戦法"}</span><small>検索 ›</small></button>
-        <button type="button" class="search-choice-button tactic-choice ${member.tactic2Name ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactic2"><span>${member.tactic2Name ? escapeHtml(member.tactic2Name) : "第2戦法"}</span><small>検索 ›</small></button>
+      <div class="selected-general-display ${member.generalName ? "selected" : ""}">
+        <span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>
+        ${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}
       </div>
+      <button type="button" class="search-choice-button tactic-batch-choice ${(member.tactic1Name || member.tactic2Name) ? "selected" : ""}" data-action="open-formation-picker" data-kind="tactic" data-slot="${member.slot}" data-field="tactics">
+        <span><b>${escapeHtml(tacticSummary)}</b><small>第1・第2戦法をまとめて選択</small></span><small>選択 ›</small>
+      </button>
     </section>`;
+}
+
+function formationGeneralBatchButtonHtml() {
+  const names = (state.formationDraft?.members ?? []).map((member) => member.generalName).filter(Boolean);
+  return `<button type="button" class="search-choice-button formation-general-batch-button ${names.length ? "selected" : ""}" data-action="open-formation-picker" data-kind="general" data-field="generals"><span><b>${names.length ? escapeHtml(names.join(" / ")) : "武将を選択"}</b><small>大将・副将1・副将2をまとめて選択</small></span><small>選択 ›</small></button>`;
 }
 
 function formationConsultationUrl(token) {
@@ -3702,24 +3732,32 @@ function consultationPickerOptions() {
   const draft = state.consultationDraft;
   if (!picker || !inventory || !draft) return [];
   const source = picker.kind === "general" ? inventory.generals : inventory.tactics;
+  const selectedIds = picker.selectedIds ?? [];
+  const selectedSet = new Set(selectedIds);
   const usedGeneralIds = new Set();
   const tacticUseCounts = new Map();
+
   for (let formationIndex = 0; formationIndex < draft.formations.length; formationIndex += 1) {
     const formation = draft.formations[formationIndex];
     for (const member of formation.members ?? []) {
       if (picker.kind === "general") {
-        if (!(formationIndex === picker.formationIndex && Number(member.slot) === Number(picker.slot)) && member.generalQookkaId) usedGeneralIds.add(member.generalQookkaId);
+        if (formationIndex !== picker.formationIndex && member.generalQookkaId) usedGeneralIds.add(member.generalQookkaId);
         continue;
       }
+      if (formationIndex === picker.formationIndex && Number(member.slot) === Number(picker.slot)) continue;
       for (const field of ["tactic1", "tactic2"]) {
-        if (formationIndex === picker.formationIndex && Number(member.slot) === Number(picker.slot) && field === picker.field) continue;
         const id = field === "tactic1" ? member.tactic1QookkaId : member.tactic2QookkaId;
         if (id) tacticUseCounts.set(id, (tacticUseCounts.get(id) || 0) + 1);
       }
     }
   }
+
   return source
-    .filter((item) => picker.kind === "general" ? !usedGeneralIds.has(item.qookkaId) : (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item))
+    .filter((item) => {
+      if (selectedSet.has(item.qookkaId)) return true;
+      if (picker.kind === "general") return !usedGeneralIds.has(item.qookkaId);
+      return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
+    })
     .filter((item) => picker.kind === "general"
       ? generalMatchesFilter(item, picker.query || "", picker.filters ?? state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" })
       : ((!normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || "")))
@@ -3727,16 +3765,28 @@ function consultationPickerOptions() {
     .slice(0, 100);
 }
 
+function consultationPickerSelectionLabel(picker, itemId) {
+  const index = (picker?.selectedIds ?? []).indexOf(itemId);
+  if (index < 0) return "";
+  if (picker.kind === "general") return formationMemberRole(index + 1);
+  return index === 0 ? "第1戦法" : "第2戦法";
+}
+
 function consultationPickerListHtml() {
   const picker = state.consultationPicker;
   const options = consultationPickerOptions();
-  return options.length ? options.map((item) => `
-    <button type="button" class="choice-option" data-action="select-consultation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
-      <strong>${escapeHtml(item.name)}</strong>
+  const selectedIds = picker?.selectedIds ?? [];
+  return options.length ? options.map((item) => {
+    const selectionLabel = consultationPickerSelectionLabel(picker, item.qookkaId);
+    const selected = selectedIds.includes(item.qookkaId);
+    return `
+    <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-consultation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}">
+      <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
       ${picker?.kind === "general"
         ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>`
         : `<span>${item.grade ? `${Number(item.grade) === 5 ? "S" : `Grade${Number(item.grade)}`} ・ ` : ""}${escapeHtml(consultationTacticKindLabel(item.kind))}</span>`}
-    </button>`).join("") : `<div class="choice-empty">候補がありません</div>`;
+    </button>`;
+  }).join("") : `<div class="choice-empty">候補がありません</div>`;
 }
 
 function consultationPickerFiltersHtml() {
@@ -3759,41 +3809,62 @@ function consultationPickerFiltersHtml() {
   </div>`;
 }
 
+function consultationPickerSelectedSummaryHtml() {
+  const picker = state.consultationPicker;
+  const inventory = state.sharedConsultation?.inventory;
+  if (!picker || !inventory) return "";
+  const source = picker.kind === "general" ? inventory.generals : inventory.tactics;
+  const labels = (picker.selectedIds ?? []).map((id, index) => {
+    const item = source.find((row) => row.qookkaId === id);
+    if (!item) return "";
+    const role = picker.kind === "general" ? formationMemberRole(index + 1) : (index === 0 ? "第1" : "第2");
+    return `<span><small>${escapeHtml(role)}</small><strong>${escapeHtml(item.name)}</strong></span>`;
+  }).filter(Boolean);
+  return labels.length ? `<div class="multi-choice-summary">${labels.join("")}</div>` : `<div class="multi-choice-summary empty">未選択</div>`;
+}
+
 function consultationPickerHtml() {
   const picker = state.consultationPicker;
   if (!picker) return "";
-  const formation = state.consultationDraft?.formations?.[picker.formationIndex];
-  const member = formation?.members?.find((row) => Number(row.slot) === Number(picker.slot));
-  const current = picker.kind === "general" ? member?.generalName : picker.field === "tactic1" ? member?.tactic1Name : member?.tactic2Name;
-  const title = picker.kind === "general" ? `${formationMemberRole(picker.slot)}の武将` : (picker.field === "tactic1" ? "第1戦法" : "第2戦法");
+  const title = picker.kind === "general" ? "武将をまとめて選択" : `${formationMemberRole(picker.slot)}の戦法を選択`;
+  const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-consultation-picker"></div>
-    <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle"></div>
-      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>${picker.kind === "tactic" ? "提案セット全体で重複不可 ・ 奮戦のみ2回" : "相談者の所持武将から選択"}</small></div><button type="button" class="icon-button" data-action="close-consultation-picker">×</button></div>
+      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-consultation-picker">×</button></div>
+      ${consultationPickerSelectedSummaryHtml()}
       <div class="choice-filter-stack"><input id="consultation-picker-search" class="choice-search" type="search" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />${consultationPickerFiltersHtml()}</div>
-      ${current ? `<button type="button" class="clear-choice-button" data-action="clear-consultation-choice">「${escapeHtml(current)}」を解除</button>` : ""}
       <div id="consultation-picker-list" class="choice-list">${consultationPickerListHtml()}</div>
+      <div class="multi-choice-footer"><button type="button" class="secondary-button" data-action="clear-consultation-multi-choice">選択解除</button><button type="button" class="primary-button" data-action="confirm-consultation-multi-choice">決定</button></div>
     </section>`;
 }
 
 function refreshConsultationPickerOptions() {
   const list = document.getElementById("consultation-picker-list");
   if (list) list.innerHTML = consultationPickerListHtml();
+  const summary = document.querySelector(".multi-choice-summary");
+  if (summary) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = consultationPickerSelectedSummaryHtml();
+    summary.replaceWith(wrapper.firstElementChild);
+  }
 }
 
 function consultationMemberEditorHtml(formationIndex, member) {
   const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
+  const tacticSummary = [member.tactic1Name, member.tactic2Name].filter(Boolean).join(" / ") || "戦法を選択";
   return `
     <section class="formation-member-editor">
       <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${Number(general.dupeCount || 0)}凸</strong>` : ""}</div>
-      <button type="button" class="search-choice-button ${member.generalName ? "selected" : ""}" data-action="open-consultation-picker" data-kind="general" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="general"><span>${member.generalName ? escapeHtml(member.generalName) : "武将を選択"}</span><small>検索 ›</small></button>
-      ${general?.inherentTacticName ? `<div class="inherent-display"><span>固有</span><strong>${escapeHtml(general.inherentTacticName)}</strong></div>` : ""}
-      <div class="formation-tactic-grid">
-        <button type="button" class="search-choice-button tactic-choice ${member.tactic1Name ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactic1"><span>${member.tactic1Name ? escapeHtml(member.tactic1Name) : "第1戦法"}</span><small>検索 ›</small></button>
-        <button type="button" class="search-choice-button tactic-choice ${member.tactic2Name ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactic2"><span>${member.tactic2Name ? escapeHtml(member.tactic2Name) : "第2戦法"}</span><small>検索 ›</small></button>
-      </div>
+      <div class="selected-general-display ${member.generalName ? "selected" : ""}"><span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>
+      <button type="button" class="search-choice-button tactic-batch-choice ${(member.tactic1Name || member.tactic2Name) ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactics"><span><b>${escapeHtml(tacticSummary)}</b><small>第1・第2戦法をまとめて選択</small></span><small>選択 ›</small></button>
     </section>`;
+}
+
+function consultationGeneralBatchButtonHtml(formationIndex, formation) {
+  const names = (formation?.members ?? []).map((member) => member.generalName).filter(Boolean);
+  return `<button type="button" class="search-choice-button formation-general-batch-button ${names.length ? "selected" : ""}" data-action="open-consultation-picker" data-kind="general" data-formation-index="${formationIndex}" data-field="generals"><span><b>${names.length ? escapeHtml(names.join(" / ")) : "武将を選択"}</b><small>大将・副将1・副将2をまとめて選択</small></span><small>選択 ›</small></button>`;
 }
 
 function consultationProposalFormationEditorHtml(formation, index) {
@@ -3805,6 +3876,7 @@ function consultationProposalFormationEditorHtml(formation, index) {
         <label class="field"><span>兵種</span><select data-consultation-formation-path="troopType" data-index="${index}"><option value="">未設定</option>${[["infantry","足軽"],["siege","兵器"],["cavalry","馬"],["bow","弓"],["gun","鉄砲"]].map(([value,label]) => `<option value="${value}" ${formation.troopType === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
         <label class="field"><span>兵種Lv</span><select data-consultation-formation-path="troopLevel" data-index="${index}"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(formation.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
       </div>
+      ${consultationGeneralBatchButtonHtml(index, formation)}
       ${formation.members.map((member) => consultationMemberEditorHtml(index, member)).join("")}
       <label class="field"><span>部隊メモ（任意）</span><textarea maxlength="500" rows="2" data-consultation-formation-path="note" data-index="${index}">${escapeHtml(formation.note || "")}</textarea></label>
     </section>`;
@@ -3842,7 +3914,6 @@ function renderFormationConsultationBody() {
           </div>
           ${draft.formations.map(consultationProposalFormationEditorHtml).join("")}
           <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 5 ? "disabled" : ""}>＋ 提案する部隊を追加</button>
-          <div class="notice subtle">同じ武将は提案セット全体で1回まで。同じ戦法も原則1回までで、<strong>奮戦のみ2回</strong>使用できます。</div>
           <button type="submit" class="primary-button">この編成案を送信</button>
         </form>
       </div>
@@ -3894,6 +3965,7 @@ function renderFormationEditor() {
               <label class="field"><span>兵種Lv</span><select name="troopLevel" data-formation-path="troopLevel"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(draft.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
             </div>
           </div>
+          ${formationGeneralBatchButtonHtml()}
           ${draft.members.map(memberEditorHtml).join("")}
           <div class="card"><label class="field"><span>メモ（任意）</span><textarea name="note" maxlength="500" rows="3" data-formation-path="note" placeholder="運用条件、注意点など">${escapeHtml(draft.note)}</textarea></label></div>
           <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面で単体共有するか、まとめ共有に選んだ編成だけ共有URLから閲覧できます。</small></div></div>
@@ -4523,9 +4595,10 @@ document.addEventListener("change", async (event) => {
   }
   if (["formation-picker-star", "formation-picker-faction", "formation-picker-cost"].includes(target.id)) {
     if (state.formationPicker?.kind === "general") {
-      state.formationPicker.filters ??= { star: "5", faction: "all", cost: "all" };
+      state.formationPicker.filters ??= { ...(state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) };
       const key = target.id === "formation-picker-star" ? "star" : target.id === "formation-picker-faction" ? "faction" : "cost";
       state.formationPicker.filters[key] = target.value;
+      state.formationGeneralPickerFilters = { ...state.formationPicker.filters };
       refreshFormationPickerOptions();
     }
     return;
@@ -4783,12 +4856,19 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "open-consultation-picker") {
     const kind = button.dataset.kind === "general" ? "general" : "tactic";
+    const formationIndex = Number(button.dataset.formationIndex);
+    const formation = state.consultationDraft?.formations?.[formationIndex];
+    const slot = Number(button.dataset.slot || 1);
+    const member = formation?.members?.find((row) => Number(row.slot) === slot);
     state.consultationPicker = {
       kind,
-      formationIndex: Number(button.dataset.formationIndex),
-      slot: Number(button.dataset.slot),
-      field: button.dataset.field || "general",
+      formationIndex,
+      slot,
+      field: kind === "general" ? "generals" : "tactics",
       query: "",
+      selectedIds: kind === "general"
+        ? (formation?.members ?? []).map((row) => row.generalQookkaId).filter(Boolean)
+        : [member?.tactic1QookkaId, member?.tactic2QookkaId].filter(Boolean),
       filters: kind === "general" ? { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
       kindFilter: kind === "tactic" ? (state.consultationTacticPickerKind || "all") : "all",
     };
@@ -4798,30 +4878,50 @@ document.addEventListener("click", async (event) => {
     state.consultationPicker = null;
     renderFormationConsultationBody();
   }
-  if (action === "clear-consultation-choice") {
-    const picker = state.consultationPicker;
-    const formation = state.consultationDraft?.formations?.[picker?.formationIndex];
-    const member = formation?.members?.find((row) => Number(row.slot) === Number(picker?.slot));
-    if (!picker || !member) return;
-    if (picker.kind === "general") {
-      member.generalQookkaId = ""; member.generalName = "";
-      member.tactic1QookkaId = ""; member.tactic1Name = "";
-      member.tactic2QookkaId = ""; member.tactic2Name = "";
-    } else if (picker.field === "tactic1") { member.tactic1QookkaId = ""; member.tactic1Name = ""; }
-    else { member.tactic2QookkaId = ""; member.tactic2Name = ""; }
-    state.consultationPicker = null;
-    renderFormationConsultationBody();
+  if (action === "clear-consultation-multi-choice") {
+    if (!state.consultationPicker) return;
+    state.consultationPicker.selectedIds = [];
+    refreshConsultationPickerOptions();
   }
-  if (action === "select-consultation-choice") {
+  if (action === "toggle-consultation-choice") {
+    const picker = state.consultationPicker;
+    if (!picker) return;
+    const id = button.dataset.id || "";
+    const selected = [...(picker.selectedIds ?? [])];
+    const index = selected.indexOf(id);
+    if (index >= 0) selected.splice(index, 1);
+    else {
+      const limit = picker.kind === "general" ? 3 : 2;
+      if (selected.length >= limit) { showToast(picker.kind === "general" ? "武将は3体まで選択できます。" : "戦法は2個まで選択できます。", "error"); return; }
+      selected.push(id);
+    }
+    picker.selectedIds = selected;
+    refreshConsultationPickerOptions();
+  }
+  if (action === "confirm-consultation-multi-choice") {
     const picker = state.consultationPicker;
     const formation = state.consultationDraft?.formations?.[picker?.formationIndex];
-    const member = formation?.members?.find((row) => Number(row.slot) === Number(picker?.slot));
-    if (!picker || !member) return;
-    const id = button.dataset.id || "";
-    const name = button.dataset.name || "";
-    if (picker.kind === "general") { member.generalQookkaId = id; member.generalName = name; }
-    else if (picker.field === "tactic1") { member.tactic1QookkaId = id; member.tactic1Name = name; }
-    else { member.tactic2QookkaId = id; member.tactic2Name = name; }
+    if (!picker || !formation) return;
+    if (picker.kind === "general") {
+      const inventory = state.sharedConsultation?.inventory?.generals ?? [];
+      const oldById = new Map((formation.members ?? []).filter((row) => row.generalQookkaId).map((row) => [row.generalQookkaId, { ...row }]));
+      formation.members = [1,2,3].map((slot, index) => {
+        const id = picker.selectedIds?.[index] || "";
+        if (!id) return { slot, generalQookkaId:"", generalName:"", tactic1QookkaId:"", tactic1Name:"", tactic2QookkaId:"", tactic2Name:"" };
+        const general = inventory.find((row) => row.qookkaId === id);
+        const old = oldById.get(id);
+        return { slot, generalQookkaId:id, generalName:general?.name || old?.generalName || "", tactic1QookkaId:old?.tactic1QookkaId || "", tactic1Name:old?.tactic1Name || "", tactic2QookkaId:old?.tactic2QookkaId || "", tactic2Name:old?.tactic2Name || "" };
+      });
+    } else {
+      const member = formation.members?.find((row) => Number(row.slot) === Number(picker.slot));
+      if (!member) return;
+      const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+      const ids = picker.selectedIds ?? [];
+      const first = tactics.find((row) => row.qookkaId === ids[0]);
+      const second = tactics.find((row) => row.qookkaId === ids[1]);
+      member.tactic1QookkaId = ids[0] || ""; member.tactic1Name = first?.name || "";
+      member.tactic2QookkaId = ids[1] || ""; member.tactic2Name = second?.name || "";
+    }
     state.consultationPicker = null;
     renderFormationConsultationBody();
   }
@@ -4892,12 +4992,17 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "open-formation-picker") {
     const kind = button.dataset.kind === "general" ? "general" : "tactic";
+    const slot = Number(button.dataset.slot || 1);
+    const member = state.formationDraft?.members?.find((row) => Number(row.slot) === slot);
     state.formationPicker = {
       kind,
-      slot: Number(button.dataset.slot),
-      field: button.dataset.field || "general",
+      slot,
+      field: kind === "general" ? "generals" : "tactics",
       query: "",
-      filters: kind === "general" ? { star: "5", faction: "all", cost: "all" } : null,
+      selectedIds: kind === "general"
+        ? (state.formationDraft?.members ?? []).map((row) => row.generalQookkaId).filter(Boolean)
+        : [member?.tactic1QookkaId, member?.tactic2QookkaId].filter(Boolean),
+      filters: kind === "general" ? { ...(state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
     };
     renderFormationEditor();
   }
@@ -4905,42 +5010,48 @@ document.addEventListener("click", async (event) => {
     state.formationPicker = null;
     renderFormationEditor();
   }
-  if (action === "clear-formation-choice") {
-    const picker = state.formationPicker;
-    const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
-    if (!picker || !member) return;
-    if (picker.kind === "general") {
-      member.generalQookkaId = "";
-      member.generalName = "";
-      member.tactic1QookkaId = "";
-      member.tactic1Name = "";
-      member.tactic2QookkaId = "";
-      member.tactic2Name = "";
-    } else if (picker.field === "tactic1") {
-      member.tactic1QookkaId = "";
-      member.tactic1Name = "";
-    } else {
-      member.tactic2QookkaId = "";
-      member.tactic2Name = "";
-    }
-    state.formationPicker = null;
-    renderFormationEditor();
+  if (action === "clear-formation-multi-choice") {
+    if (!state.formationPicker) return;
+    state.formationPicker.selectedIds = [];
+    refreshFormationPickerOptions();
   }
-  if (action === "select-formation-choice") {
+  if (action === "toggle-formation-choice") {
     const picker = state.formationPicker;
-    const member = state.formationDraft?.members?.find((row) => row.slot === Number(picker?.slot));
-    if (!picker || !member) return;
+    if (!picker) return;
     const id = button.dataset.id || "";
-    const name = button.dataset.name || "";
+    const selected = [...(picker.selectedIds ?? [])];
+    const index = selected.indexOf(id);
+    if (index >= 0) selected.splice(index, 1);
+    else {
+      const limit = picker.kind === "general" ? 3 : 2;
+      if (selected.length >= limit) { showToast(picker.kind === "general" ? "武将は3体まで選択できます。" : "戦法は2個まで選択できます。", "error"); return; }
+      selected.push(id);
+    }
+    picker.selectedIds = selected;
+    refreshFormationPickerOptions();
+  }
+  if (action === "confirm-formation-multi-choice") {
+    const picker = state.formationPicker;
+    if (!picker || !state.formationDraft) return;
     if (picker.kind === "general") {
-      member.generalQookkaId = id;
-      member.generalName = name;
-    } else if (picker.field === "tactic1") {
-      member.tactic1QookkaId = id;
-      member.tactic1Name = name;
+      const generals = state.myInventory?.generals ?? [];
+      const oldById = new Map((state.formationDraft.members ?? []).filter((row) => row.generalQookkaId).map((row) => [row.generalQookkaId, { ...row }]));
+      state.formationDraft.members = [1,2,3].map((slot, index) => {
+        const id = picker.selectedIds?.[index] || "";
+        if (!id) return { slot, generalQookkaId:"", generalName:"", tactic1QookkaId:"", tactic1Name:"", tactic2QookkaId:"", tactic2Name:"" };
+        const general = generals.find((row) => row.qookkaId === id);
+        const old = oldById.get(id);
+        return { slot, generalQookkaId:id, generalName:general?.name || old?.generalName || "", tactic1QookkaId:old?.tactic1QookkaId || "", tactic1Name:old?.tactic1Name || "", tactic2QookkaId:old?.tactic2QookkaId || "", tactic2Name:old?.tactic2Name || "" };
+      });
     } else {
-      member.tactic2QookkaId = id;
-      member.tactic2Name = name;
+      const member = state.formationDraft.members?.find((row) => Number(row.slot) === Number(picker.slot));
+      if (!member) return;
+      const tactics = state.myInventory?.tactics ?? [];
+      const ids = picker.selectedIds ?? [];
+      const first = tactics.find((row) => row.qookkaId === ids[0]);
+      const second = tactics.find((row) => row.qookkaId === ids[1]);
+      member.tactic1QookkaId = ids[0] || ""; member.tactic1Name = first?.name || "";
+      member.tactic2QookkaId = ids[1] || ""; member.tactic2Name = second?.name || "";
     }
     state.formationPicker = null;
     renderFormationEditor();
