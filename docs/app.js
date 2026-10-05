@@ -1,4 +1,5 @@
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.8.2";
+const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -3112,34 +3113,28 @@ function renderMyFormationsBody() {
               <h2>${escapeHtml(formation.name || "名称未設定の編成")}</h2>
               <span class="privacy-badge ${formation.isShared ? "shared" : "private"}">${formation.isShared ? "共有中" : "非公開"}</span>
             </div>
-            <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+            <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}${formation.updatedAt ? ` ・ 更新 ${escapeHtml(formatDateTime(formation.updatedAt))}` : ""}</small>
           </div>
         </div>
         <div class="formation-summary">${formationSummaryMembers(formation)}</div>
         ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
-        <div class="button-row formation-actions">
-          <button type="button" class="secondary-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編集</button>
+        <button type="button" class="primary-button formation-edit-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編成を編集</button>
+        <div class="button-row formation-share-actions">
           ${formation.isShared
-            ? `<button type="button" class="primary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">共有URLをコピー</button>
+            ? `<button type="button" class="secondary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">共有URLをコピー</button>
                <button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">共有解除</button>`
-            : `<button type="button" class="primary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">共有する</button>`}
+            : `<button type="button" class="secondary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">この編成を共有</button>`}
         </div>
       </article>`).join("")
-    : `<div class="card empty-state"><strong>まだ編成がありません</strong><p class="muted">所持情報を同期して、自分の編成を登録してください。</p></div>`;
+    : `<div class="card empty-state"><strong>まだ編成がありません</strong><p class="muted">「編成を登録」から最初の編成を作成できます。</p></div>`;
 
   app.innerHTML = pageHtml({
     title: "マイ編成",
-    subtitle: "非公開で保存・必要な編成だけ共有",
+    subtitle: "編成の登録・編集をすばやく",
     content: `
       <div class="page-content formation-page">
-        <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>所持情報と編成は初期状態では本人だけ</strong><small>「共有する」を押した編成だけ専用URLで閲覧できます。</small></div></div>
-        ${qookkaSyncCard()}
-        <div class="inventory-shortcut card">
-          <div><strong>所持 武将${inventory.generals?.length ?? 0} / 戦法${inventory.tactics?.length ?? 0}</strong><small>凸はQookkaと別管理</small></div>
-          <button type="button" class="secondary-button" data-action="navigate" data-view="inventory">所持・凸を編集</button>
-        </div>
-        <button type="button" class="primary-button create-formation-button" data-action="new-my-formation" ${hasInventory ? "" : "disabled"}>＋ 新しい編成</button>
-        ${!hasInventory ? `<div class="notice warning">先にQookka共有URLから所持情報を同期してください。</div>` : ""}
+        <button type="button" class="primary-button create-formation-button" data-action="new-my-formation" ${hasInventory ? "" : "disabled"}>＋ 編成を登録</button>
+        ${!hasInventory ? `<div class="notice warning">編成登録の前に所持情報が必要です。<button type="button" class="inline-link-button" data-action="navigate" data-view="inventory">所持情報を登録する</button></div>` : ""}
         <div class="section-heading"><h2>保存した編成</h2><span>${state.myFormations.length}件</span></div>
         ${formationCards}
       </div>`,
@@ -3209,8 +3204,8 @@ function inventoryFilterControlsHtml(generals) {
 function renderMyInventoryBody() {
   const inventory = state.myInventory ?? { generals: [], tactics: [], lastImport: null };
   app.innerHTML = pageHtml({
-    title: "所持・凸",
-    subtitle: `武将${inventory.generals.length} / 戦法${inventory.tactics.length}`,
+    title: "所持情報管理",
+    subtitle: `武将${inventory.generals.length} / 戦法${inventory.tactics.length} ・ Qookka同期・凸設定`,
     content: `
       <div class="page-content inventory-page">
         ${qookkaSyncCard()}
@@ -3236,10 +3231,14 @@ function renderMyInventoryBody() {
           <div class="tactic-chip-list">${inventory.tactics.map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}</div>
         </details>
       </div>`,
-    activeNav: "formations",
-    backAction: "back-to-formations",
+    activeNav: "settings",
+    backAction: "back-to-settings",
   });
   applyInventorySearchFilter();
+}
+
+function maxTacticCopies(tactic) {
+  return FORMATION_TACTIC_COPY_LIMITS[String(tactic?.name || "").trim()] ?? 1;
 }
 
 function currentPickerOptions() {
@@ -3247,20 +3246,26 @@ function currentPickerOptions() {
   if (!picker || !state.myInventory) return [];
   const source = picker.kind === "general" ? state.myInventory.generals : state.myInventory.tactics;
   const query = normalizeSearchText(picker.query || "");
-  const currentMember = state.formationDraft?.members?.find((row) => row.slot === Number(picker.slot));
-  const currentId = picker.kind === "general"
-    ? currentMember?.generalQookkaId
-    : picker.field === "tactic1" ? currentMember?.tactic1QookkaId : currentMember?.tactic2QookkaId;
-  const usedIds = new Set();
-  if (picker.kind === "general") {
-    for (const row of state.formationDraft?.members ?? []) if (row.generalQookkaId && row.generalQookkaId !== currentId) usedIds.add(row.generalQookkaId);
-  } else {
-    for (const row of state.formationDraft?.members ?? []) {
-      for (const id of [row.tactic1QookkaId, row.tactic2QookkaId]) if (id && id !== currentId) usedIds.add(id);
+  const usedGeneralIds = new Set();
+  const tacticUseCounts = new Map();
+
+  for (const row of state.formationDraft?.members ?? []) {
+    if (picker.kind === "general") {
+      if (row.slot !== Number(picker.slot) && row.generalQookkaId) usedGeneralIds.add(row.generalQookkaId);
+      continue;
+    }
+    for (const field of ["tactic1", "tactic2"]) {
+      if (row.slot === Number(picker.slot) && field === picker.field) continue;
+      const id = field === "tactic1" ? row.tactic1QookkaId : row.tactic2QookkaId;
+      if (id) tacticUseCounts.set(id, (tacticUseCounts.get(id) || 0) + 1);
     }
   }
+
   return source
-    .filter((item) => !usedIds.has(item.qookkaId))
+    .filter((item) => {
+      if (picker.kind === "general") return !usedGeneralIds.has(item.qookkaId);
+      return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
+    })
     .filter((item) => {
       if (picker.kind !== "general") return !query || normalizeSearchText(item.name).includes(query);
       const filters = picker.filters ?? { star: "5", faction: "all", cost: "all" };
@@ -3321,7 +3326,7 @@ function formationPickerHtml() {
     <div class="choice-sheet-backdrop" data-action="close-formation-picker"></div>
     <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle" aria-hidden="true"></div>
-      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>所持中から検索</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
+      <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>${picker.kind === "tactic" ? "所持中から検索 ・ 奮戦のみ2回まで使用可" : "所持中から検索"}</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
       <div class="choice-filter-stack">
         <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
         ${formationPickerGeneralFiltersHtml()}
@@ -3674,6 +3679,12 @@ function renderSettingsBody() {
     </div>
 
     <div class="notice info" style="font-size:.8rem">アプリバージョン：${escapeHtml(APP_VERSION)}</div>
+
+    <div class="card">
+      <div class="card-header"><div><h2>マイ編成の所持情報</h2><small>低頻度の設定・更新</small></div></div>
+      <p class="muted">Qookka共有URLから所持武将・所持戦法を同期し、武将の凸を設定します。普段の編成登録・編集は「マイ編成」から行います。</p>
+      <button type="button" class="secondary-button" style="width:100%" data-action="navigate" data-view="inventory">所持情報を管理</button>
+    </div>
 
     <div class="card">
       <div class="card-header"><div><h2>武将・戦法マスタ</h2><small>OCRの誤読補正辞書</small></div></div>

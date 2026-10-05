@@ -2905,3 +2905,41 @@ textarea:focus {
   .inventory-result-count { grid-column: 1 / -1; grid-auto-flow: column; justify-content: space-between; justify-items: stretch; }
   .picker-filter-grid select { font-size: .72rem; padding: 0 5px; }
 }
+
+
+/* ==========================================================
+   v1.8.2 マイ編成導線整理
+   ========================================================== */
+.formation-edit-button {
+  width: 100%;
+  min-height: 46px;
+  font-weight: 800;
+}
+
+.formation-share-actions {
+  justify-content: flex-start;
+}
+
+.formation-management-link {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.formation-management-link .text-button {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.inline-link-button {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d8bc76;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
