@@ -1,4 +1,4 @@
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.9.1";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -82,6 +82,8 @@ const state = {
   consultationSubmitted: false,
   consultationInventorySearch: "",
   consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
+  consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
+  consultationTacticPickerKind: "all",
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -3625,59 +3627,72 @@ async function renderFormationConsultationDetail() {
   }
 }
 
-function consultationInventoryFilterControlsHtml(generals) {
-  const { factions, costs } = generalFilterValues(generals);
-  const filters = state.consultationInventoryFilters ?? { star: "all", faction: "all", cost: "all" };
-  return `
-    <div class="inventory-filter-panel consultation-inventory-filters">
-      <label><span>レア度</span><select id="consultation-inventory-star">
-        <option value="all" ${filters.star === "all" ? "selected" : ""}>すべて</option>
-        <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
-        <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
-      </select></label>
-      <label><span>勢力</span><select id="consultation-inventory-faction"><option value="all">すべて</option>${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select></label>
-      <label><span>コスト</span><select id="consultation-inventory-cost"><option value="all">すべて</option>${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>${value}</option>`).join("")}</select></label>
-      <div class="inventory-result-count"><span>表示中</span><strong id="consultation-inventory-result-count">0件</strong></div>
-    </div>`;
+function consultationTacticKindLabel(value) {
+  const kind = String(value || "").trim();
+  return kind || "その他";
 }
 
-function applyConsultationInventoryFilter() {
-  const filters = state.consultationInventoryFilters ?? { star: "all", faction: "all", cost: "all" };
-  let count = 0;
-  document.querySelectorAll("[data-consultation-general]").forEach((row) => {
-    const visible = generalMatchesFilter({
-      name: row.dataset.consultationGeneral || "",
-      star: row.dataset.star || "",
-      faction: row.dataset.faction || "",
-      cost: row.dataset.cost || "",
-    }, state.consultationInventorySearch, filters);
-    row.hidden = !visible;
-    if (visible) count += 1;
-  });
-  const output = document.getElementById("consultation-inventory-result-count");
-  if (output) output.textContent = `${count}件`;
+function consultationTacticKindValues(tactics) {
+  const preferred = ["能動", "突撃", "指揮", "受動", "兵種", "陣法"];
+  const present = new Set((tactics ?? []).map((tactic) => consultationTacticKindLabel(tactic.kind)));
+  const ordered = preferred.filter((kind) => present.has(kind));
+  const extra = [...present].filter((kind) => !preferred.includes(kind) && kind !== "その他").sort((a, b) => a.localeCompare(b, "ja"));
+  if (present.has("その他")) extra.push("その他");
+  return [...ordered, ...extra];
 }
 
 function consultationInventoryHtml() {
   const inventory = state.sharedConsultation?.inventory ?? { generals: [], tactics: [], lastImport: null };
+  const star5Generals = (inventory.generals ?? [])
+    .filter((general) => Number(general.star) === 5)
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+  const factionGroups = new Map();
+  for (const general of star5Generals) {
+    const faction = String(general.faction || "その他").trim() || "その他";
+    if (!factionGroups.has(faction)) factionGroups.set(faction, []);
+    factionGroups.get(faction).push(general);
+  }
+  const factionNames = [...factionGroups.keys()].sort((a, b) => a.localeCompare(b, "ja"));
+
+  const sTactics = (inventory.tactics ?? [])
+    .filter((tactic) => Number(tactic.grade) === 5)
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+  const tacticGroups = new Map();
+  for (const tactic of sTactics) {
+    const kind = consultationTacticKindLabel(tactic.kind);
+    if (!tacticGroups.has(kind)) tacticGroups.set(kind, []);
+    tacticGroups.get(kind).push(tactic);
+  }
+  const tacticKinds = consultationTacticKindValues(sTactics);
+
+  const generalGroupsHtml = factionNames.length
+    ? factionNames.map((faction) => `
+        <section class="consultation-inventory-group">
+          <div class="consultation-inventory-group-title"><strong>${escapeHtml(faction)}</strong><span>${factionGroups.get(faction).length}名</span></div>
+          <div class="consultation-general-chip-list">
+            ${factionGroups.get(faction).map((general) => `<span class="consultation-general-chip"><b>${escapeHtml(general.name)}</b><small>${Number(general.dupeCount || 0)}凸${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></span>`).join("")}
+          </div>
+        </section>`).join("")
+    : `<div class="notice subtle">★5武将の分類情報を取得できませんでした。編成作成では全所持武将から選択できます。</div>`;
+
+  const tacticGroupsHtml = tacticKinds.length
+    ? tacticKinds.map((kind) => `
+        <section class="consultation-inventory-group">
+          <div class="consultation-inventory-group-title"><strong>${escapeHtml(kind)}戦法</strong><span>${tacticGroups.get(kind).length}件</span></div>
+          <div class="tactic-chip-list consultation-tactic-chip-list">
+            ${tacticGroups.get(kind).map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}
+          </div>
+        </section>`).join("")
+    : `<div class="notice subtle">S戦法の分類情報を取得できませんでした。編成作成では全所持戦法から選択できます。</div>`;
+
   return `
     <details class="card consultation-inventory-card" open>
-      <summary><strong>所持武将 ${inventory.generals.length}</strong><span>凸を含む全手持ち</span></summary>
-      <div class="consultation-inventory-body">
-        <input id="consultation-inventory-search" class="choice-search" type="search" placeholder="武将名で検索" value="${escapeAttr(state.consultationInventorySearch)}" />
-        ${consultationInventoryFilterControlsHtml(inventory.generals)}
-        <div class="consultation-general-grid">
-          ${inventory.generals.map((general) => `
-            <div class="consultation-general-item" data-consultation-general="${escapeAttr(general.name)}" data-star="${escapeAttr(general.star ?? "")}" data-faction="${escapeAttr(general.faction ?? "")}" data-cost="${escapeAttr(general.cost ?? "")}">
-              <div><strong>${escapeHtml(general.name)}</strong><small>${general.star ? `★${Number(general.star)} ・ ` : ""}${general.faction ? `${escapeHtml(general.faction)} ・ ` : ""}${general.cost ? `コスト${Number(general.cost)}` : ""}</small></div>
-              <b>${Number(general.dupeCount || 0)}凸</b>
-            </div>`).join("")}
-        </div>
-      </div>
+      <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
+      <div class="consultation-inventory-body consultation-grouped-inventory">${generalGroupsHtml}</div>
     </details>
-    <details class="card consultation-inventory-card">
-      <summary><strong>所持戦法 ${inventory.tactics.length}</strong><span>全件</span></summary>
-      <div class="tactic-chip-list">${inventory.tactics.map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}</div>
+    <details class="card consultation-inventory-card" open>
+      <summary><strong>所持戦法 S ${sTactics.length}</strong><span>種別別 ・ 全所持${inventory.tactics.length}件</span></summary>
+      <div class="consultation-inventory-body consultation-grouped-inventory">${tacticGroupsHtml}</div>
     </details>`;
 }
 
@@ -3706,8 +3721,9 @@ function consultationPickerOptions() {
   return source
     .filter((item) => picker.kind === "general" ? !usedGeneralIds.has(item.qookkaId) : (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item))
     .filter((item) => picker.kind === "general"
-      ? generalMatchesFilter(item, picker.query || "", picker.filters ?? { star: "5", faction: "all", cost: "all" })
-      : !normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || "")))
+      ? generalMatchesFilter(item, picker.query || "", picker.filters ?? state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" })
+      : ((!normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || "")))
+        && ((picker.kindFilter || "all") === "all" || consultationTacticKindLabel(item.kind) === picker.kindFilter)))
     .slice(0, 100);
 }
 
@@ -3717,19 +3733,29 @@ function consultationPickerListHtml() {
   return options.length ? options.map((item) => `
     <button type="button" class="choice-option" data-action="select-consultation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
       <strong>${escapeHtml(item.name)}</strong>
-      ${picker?.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
+      ${picker?.kind === "general"
+        ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>`
+        : `<span>${item.grade ? `${Number(item.grade) === 5 ? "S" : `Grade${Number(item.grade)}`} ・ ` : ""}${escapeHtml(consultationTacticKindLabel(item.kind))}</span>`}
     </button>`).join("") : `<div class="choice-empty">候補がありません</div>`;
 }
 
 function consultationPickerFiltersHtml() {
   const picker = state.consultationPicker;
-  if (!picker || picker.kind !== "general") return "";
-  const { factions, costs } = generalFilterValues(state.sharedConsultation?.inventory?.generals ?? []);
-  const filters = picker.filters ?? { star: "5", faction: "all", cost: "all" };
-  return `<div class="picker-filter-grid">
-    <select id="consultation-picker-star"><option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option><option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option><option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option></select>
-    <select id="consultation-picker-faction"><option value="all">全勢力</option>${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select>
-    <select id="consultation-picker-cost"><option value="all">全コスト</option>${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}</select>
+  if (!picker) return "";
+  if (picker.kind === "general") {
+    const { factions, costs } = generalFilterValues(state.sharedConsultation?.inventory?.generals ?? []);
+    const filters = picker.filters ?? state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
+    return `<div class="picker-filter-grid">
+      <select id="consultation-picker-star"><option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option><option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option><option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option></select>
+      <select id="consultation-picker-faction"><option value="all">全勢力</option>${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select>
+      <select id="consultation-picker-cost"><option value="all">全コスト</option>${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}</select>
+    </div>`;
+  }
+  const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const kinds = consultationTacticKindValues(tactics);
+  const selected = picker.kindFilter || state.consultationTacticPickerKind || "all";
+  return `<div class="picker-filter-grid consultation-tactic-filter-grid">
+    <select id="consultation-picker-kind"><option value="all">全種別</option>${kinds.map((kind) => `<option value="${escapeAttr(kind)}" ${selected === kind ? "selected" : ""}>${escapeHtml(kind)}</option>`).join("")}</select>
   </div>`;
 }
 
@@ -3805,7 +3831,7 @@ function renderFormationConsultationBody() {
     content: `
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
-        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。保存済みの編成は表示されません。</div>
+        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。上の手持ち一覧は見やすさのため★5武将・S戦法だけを表示しています。</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
         <div class="section-heading"><h2>編成案を作成</h2><span>1〜5部隊</span></div>
@@ -3823,7 +3849,6 @@ function renderFormationConsultationBody() {
       ${consultationPickerHtml()}`,
     showNav: false,
   });
-  applyConsultationInventoryFilter();
   if (state.consultationPicker) window.setTimeout(() => document.getElementById("consultation-picker-search")?.focus(), 30);
 }
 
@@ -4321,11 +4346,6 @@ function scheduleEnemySearch() {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.id === "consultation-inventory-search") {
-    state.consultationInventorySearch = target.value;
-    if (!event.isComposing && target.dataset.composing !== "true") applyConsultationInventoryFilter();
-    return;
-  }
   if (target.id === "consultation-picker-search") {
     if (state.consultationPicker) {
       state.consultationPicker.query = target.value;
@@ -4404,20 +4424,15 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("compositionstart", (event) => {
   const target = event.target;
-  if (["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-inventory-search", "consultation-picker-search"].includes(target?.id)) {
+  if (["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-picker-search"].includes(target?.id)) {
     target.dataset.composing = "true";
   }
 });
 
 document.addEventListener("compositionend", (event) => {
   const target = event.target;
-  if (!["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-inventory-search", "consultation-picker-search"].includes(target?.id)) return;
+  if (!["master-search", "enemy-search", "inventory-search", "formation-picker-search", "consultation-picker-search"].includes(target?.id)) return;
   delete target.dataset.composing;
-  if (target.id === "consultation-inventory-search") {
-    state.consultationInventorySearch = target.value;
-    applyConsultationInventoryFilter();
-    return;
-  }
   if (target.id === "consultation-picker-search") {
     if (state.consultationPicker) {
       state.consultationPicker.query = target.value;
@@ -4476,17 +4491,20 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
-  if (["consultation-inventory-star", "consultation-inventory-faction", "consultation-inventory-cost"].includes(target.id)) {
-    const key = target.id === "consultation-inventory-star" ? "star" : target.id === "consultation-inventory-faction" ? "faction" : "cost";
-    state.consultationInventoryFilters[key] = target.value;
-    applyConsultationInventoryFilter();
-    return;
-  }
   if (["consultation-picker-star", "consultation-picker-faction", "consultation-picker-cost"].includes(target.id)) {
     if (state.consultationPicker?.kind === "general") {
-      state.consultationPicker.filters ??= { star: "5", faction: "all", cost: "all" };
+      state.consultationPicker.filters ??= { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) };
       const key = target.id === "consultation-picker-star" ? "star" : target.id === "consultation-picker-faction" ? "faction" : "cost";
       state.consultationPicker.filters[key] = target.value;
+      state.consultationGeneralPickerFilters = { ...state.consultationPicker.filters };
+      refreshConsultationPickerOptions();
+    }
+    return;
+  }
+  if (target.id === "consultation-picker-kind") {
+    if (state.consultationPicker?.kind === "tactic") {
+      state.consultationPicker.kindFilter = target.value;
+      state.consultationTacticPickerKind = target.value;
       refreshConsultationPickerOptions();
     }
     return;
@@ -4771,7 +4789,8 @@ document.addEventListener("click", async (event) => {
       slot: Number(button.dataset.slot),
       field: button.dataset.field || "general",
       query: "",
-      filters: kind === "general" ? { star: "5", faction: "all", cost: "all" } : null,
+      filters: kind === "general" ? { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
+      kindFilter: kind === "tactic" ? (state.consultationTacticPickerKind || "all") : "all",
     };
     renderFormationConsultationBody();
   }

@@ -3223,3 +3223,84 @@ textarea:focus {
   font-size: .62rem;
   vertical-align: middle;
 }
+
+
+/* v1.9.1 編成相談: 手持ち一覧の分類表示と戦法種別フィルター */
+.consultation-grouped-inventory {
+  gap: 14px;
+}
+
+.consultation-inventory-group {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.consultation-inventory-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.consultation-inventory-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.consultation-inventory-group-title strong {
+  font-size: .86rem;
+}
+
+.consultation-inventory-group-title span {
+  color: var(--muted);
+  font-size: .7rem;
+}
+
+.consultation-general-chip-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.consultation-general-chip {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+
+.consultation-general-chip b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .8rem;
+}
+
+.consultation-general-chip small {
+  color: var(--muted);
+  font-size: .65rem;
+}
+
+.consultation-tactic-chip-list {
+  max-height: none;
+}
+
+.consultation-tactic-filter-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.consultation-tactic-filter-grid select {
+  width: 100%;
+}
+
+@media (max-width: 420px) {
+  .consultation-general-chip-list {
+    grid-template-columns: 1fr;
+  }
+}
