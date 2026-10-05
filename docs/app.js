@@ -1,4 +1,4 @@
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -62,6 +62,7 @@ const state = {
   myInventory: null,
   myFormations: [],
   inventorySearch: "",
+  inventoryFilters: { star: "5", faction: "all", cost: "all" },
   formationDraft: null,
   formationPicker: null,
   sharedFormation: null,
@@ -973,6 +974,30 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function normalizeSearchText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja-JP")
+    .replace(/[\s・･ーｰ_-]+/g, "");
+}
+
+function generalFilterValues(generals = []) {
+  const factions = [...new Set(generals.map((row) => String(row.faction || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ja"));
+  const costs = [...new Set(generals.map((row) => Number(row.cost)).filter((value) => Number.isFinite(value) && value > 0))]
+    .sort((a, b) => a - b);
+  return { factions, costs };
+}
+
+function generalMatchesFilter(general, query, filters = {}) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery && !normalizeSearchText(general.name).includes(normalizedQuery)) return false;
+  if (filters.star && filters.star !== "all" && general.star != null && general.star !== "" && String(general.star) !== String(filters.star)) return false;
+  if (filters.faction && filters.faction !== "all" && general.faction && String(general.faction) !== String(filters.faction)) return false;
+  if (filters.cost && filters.cost !== "all" && general.cost != null && general.cost !== "" && String(general.cost) !== String(filters.cost)) return false;
+  return true;
 }
 
 function clamp(value, min, max) {
@@ -3142,11 +3167,43 @@ function dupeControlHtml(general) {
 }
 
 function applyInventorySearchFilter() {
-  const query = normalizeSearchText(state.inventorySearch);
+  const filters = state.inventoryFilters ?? { star: "5", faction: "all", cost: "all" };
+  let visibleCount = 0;
   document.querySelectorAll("[data-inventory-general]").forEach((row) => {
-    const haystack = normalizeSearchText(row.dataset.inventoryGeneral || "");
-    row.hidden = Boolean(query && !haystack.includes(query));
+    const general = {
+      name: row.dataset.inventoryGeneral || "",
+      star: row.dataset.star || "",
+      faction: row.dataset.faction || "",
+      cost: row.dataset.cost || "",
+    };
+    const visible = generalMatchesFilter(general, state.inventorySearch, filters);
+    row.hidden = !visible;
+    if (visible) visibleCount += 1;
   });
+  const count = document.getElementById("inventory-result-count");
+  if (count) count.textContent = `${visibleCount}件`;
+}
+
+function inventoryFilterControlsHtml(generals) {
+  const { factions, costs } = generalFilterValues(generals);
+  const filters = state.inventoryFilters ?? { star: "5", faction: "all", cost: "all" };
+  return `
+    <div class="inventory-filter-panel">
+      <label><span>レア度</span><select id="inventory-star-filter">
+        <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
+        <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
+        <option value="all" ${filters.star === "all" ? "selected" : ""}>すべて</option>
+      </select></label>
+      <label><span>勢力</span><select id="inventory-faction-filter">
+        <option value="all">すべて</option>
+        ${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+      </select></label>
+      <label><span>コスト</span><select id="inventory-cost-filter">
+        <option value="all">すべて</option>
+        ${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>${value}</option>`).join("")}
+      </select></label>
+      <div class="inventory-result-count"><span>表示中</span><strong id="inventory-result-count">0件</strong></div>
+    </div>`;
 }
 
 function renderMyInventoryBody() {
@@ -3160,10 +3217,15 @@ function renderMyInventoryBody() {
         <div class="card">
           <div class="card-header"><div><h2>所持武将</h2><small>○をタップして凸を設定</small></div></div>
           <label class="field compact-search"><span>武将を検索</span><input id="inventory-search" type="search" value="${escapeAttr(state.inventorySearch)}" placeholder="武将名で絞り込み" /></label>
+          ${inventoryFilterControlsHtml(inventory.generals)}
           <div class="inventory-general-list">
             ${inventory.generals.length ? inventory.generals.map((general) => `
-              <div class="inventory-general-row" data-inventory-general="${escapeAttr(general.name)}">
-                <div class="inventory-general-name"><strong>${escapeHtml(general.name)}</strong>${general.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>
+              <div class="inventory-general-row" data-inventory-general="${escapeAttr(general.name)}" data-star="${escapeAttr(general.star ?? "")}" data-faction="${escapeAttr(general.faction ?? "")}" data-cost="${escapeAttr(general.cost ?? "")}">
+                <div class="inventory-general-name">
+                  <strong>${escapeHtml(general.name)}</strong>
+                  <div class="general-meta-line">${general.star ? `<span>★${Number(general.star)}</span>` : ""}${general.faction ? `<span>${escapeHtml(general.faction)}</span>` : ""}${general.cost ? `<span>コスト${Number(general.cost)}</span>` : ""}</div>
+                  ${general.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}
+                </div>
                 ${dupeControlHtml(general)}
               </div>`).join("") : `<p class="muted">所持武将が未同期です。</p>`}
           </div>
@@ -3199,7 +3261,11 @@ function currentPickerOptions() {
   }
   return source
     .filter((item) => !usedIds.has(item.qookkaId))
-    .filter((item) => !query || normalizeSearchText(item.name).includes(query))
+    .filter((item) => {
+      if (picker.kind !== "general") return !query || normalizeSearchText(item.name).includes(query);
+      const filters = picker.filters ?? { star: "5", faction: "all", cost: "all" };
+      return generalMatchesFilter(item, picker.query || "", filters);
+    })
     .slice(0, 80);
 }
 
@@ -3211,7 +3277,7 @@ function formationPickerListHtml() {
     ? options.map((item) => `
       <button type="button" class="choice-option" data-action="select-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}">
         <strong>${escapeHtml(item.name)}</strong>
-        ${picker.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
+        ${picker.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
       </button>`).join("")
     : `<div class="choice-empty">候補がありません</div>`;
 }
@@ -3224,6 +3290,28 @@ function currentFormationPickerSelection() {
   return picker.field === "tactic1" ? (member.tactic1Name || "") : (member.tactic2Name || "");
 }
 
+function formationPickerGeneralFiltersHtml() {
+  if (!state.formationPicker || state.formationPicker.kind !== "general") return "";
+  const { factions, costs } = generalFilterValues(state.myInventory?.generals ?? []);
+  const filters = state.formationPicker.filters ?? { star: "5", faction: "all", cost: "all" };
+  return `
+    <div class="picker-filter-grid">
+      <select id="formation-picker-star" aria-label="レア度">
+        <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
+        <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
+        <option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option>
+      </select>
+      <select id="formation-picker-faction" aria-label="勢力">
+        <option value="all">全勢力</option>
+        ${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+      </select>
+      <select id="formation-picker-cost" aria-label="コスト">
+        <option value="all">全コスト</option>
+        ${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}
+      </select>
+    </div>`;
+}
+
 function formationPickerHtml() {
   const picker = state.formationPicker;
   if (!picker) return "";
@@ -3234,7 +3322,10 @@ function formationPickerHtml() {
     <section class="choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle" aria-hidden="true"></div>
       <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>所持中から検索</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
-      <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
+      <div class="choice-filter-stack">
+        <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
+        ${formationPickerGeneralFiltersHtml()}
+      </div>
       ${currentSelection ? `<button type="button" class="clear-choice-button" data-action="clear-formation-choice">「${escapeHtml(currentSelection)}」を解除</button>` : ""}
       <div id="formation-picker-list" class="choice-list">${formationPickerListHtml()}</div>
     </section>`;
@@ -3677,7 +3768,10 @@ document.addEventListener("input", (event) => {
     return;
   }
   if (target.id === "formation-picker-search") {
-    if (state.formationPicker) { state.formationPicker.query = target.value; refreshFormationPickerOptions(); }
+    if (state.formationPicker) {
+      state.formationPicker.query = target.value;
+      if (!event.isComposing && target.dataset.composing !== "true") refreshFormationPickerOptions();
+    }
     return;
   }
   const formationPath = target.dataset?.formationPath;
@@ -3728,14 +3822,14 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("compositionstart", (event) => {
   const target = event.target;
-  if (["master-search", "enemy-search", "inventory-search"].includes(target?.id)) {
+  if (["master-search", "enemy-search", "inventory-search", "formation-picker-search"].includes(target?.id)) {
     target.dataset.composing = "true";
   }
 });
 
 document.addEventListener("compositionend", (event) => {
   const target = event.target;
-  if (!["master-search", "enemy-search", "inventory-search"].includes(target?.id)) return;
+  if (!["master-search", "enemy-search", "inventory-search", "formation-picker-search"].includes(target?.id)) return;
   delete target.dataset.composing;
   if (target.id === "master-search") {
     state.masterSearch = target.value;
@@ -3745,6 +3839,13 @@ document.addEventListener("compositionend", (event) => {
   if (target.id === "inventory-search") {
     state.inventorySearch = target.value;
     applyInventorySearchFilter();
+    return;
+  }
+  if (target.id === "formation-picker-search") {
+    if (state.formationPicker) {
+      state.formationPicker.query = target.value;
+      refreshFormationPickerOptions();
+    }
     return;
   }
   state.enemySearch = target.value;
@@ -3781,6 +3882,21 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
+  if (["inventory-star-filter", "inventory-faction-filter", "inventory-cost-filter"].includes(target.id)) {
+    const key = target.id === "inventory-star-filter" ? "star" : target.id === "inventory-faction-filter" ? "faction" : "cost";
+    state.inventoryFilters[key] = target.value;
+    applyInventorySearchFilter();
+    return;
+  }
+  if (["formation-picker-star", "formation-picker-faction", "formation-picker-cost"].includes(target.id)) {
+    if (state.formationPicker?.kind === "general") {
+      state.formationPicker.filters ??= { star: "5", faction: "all", cost: "all" };
+      const key = target.id === "formation-picker-star" ? "star" : target.id === "formation-picker-faction" ? "faction" : "cost";
+      state.formationPicker.filters[key] = target.value;
+      refreshFormationPickerOptions();
+    }
+    return;
+  }
   if (target.id === "report-files") {
     await prepareFiles(target.files);
   }
@@ -3944,11 +4060,13 @@ document.addEventListener("click", async (event) => {
     await navigate("formation-edit");
   }
   if (action === "open-formation-picker") {
+    const kind = button.dataset.kind === "general" ? "general" : "tactic";
     state.formationPicker = {
-      kind: button.dataset.kind === "general" ? "general" : "tactic",
+      kind,
       slot: Number(button.dataset.slot),
       field: button.dataset.field || "general",
       query: "",
+      filters: kind === "general" ? { star: "5", faction: "all", cost: "all" } : null,
     };
     renderFormationEditor();
   }

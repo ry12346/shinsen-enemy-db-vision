@@ -2869,3 +2869,39 @@ textarea:focus {
   text-align: left;
   padding: 0 11px;
 }
+
+
+/* v1.8.1 マイ編成検索・絞り込み */
+.inventory-filter-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 7px;
+  align-items: end;
+  margin-top: 9px;
+}
+.inventory-filter-panel label { display: grid; gap: 4px; min-width: 0; }
+.inventory-filter-panel label > span,
+.inventory-result-count > span { color: var(--muted); font-size: .66rem; font-weight: 700; }
+.inventory-filter-panel select,
+.picker-filter-grid select {
+  width: 100%; min-height: 38px; padding: 0 8px;
+  border: 1px solid rgba(213,224,240,.12); border-radius: 10px;
+  background: rgba(5,10,17,.7); color: var(--text); font: inherit; font-size: .78rem;
+}
+.inventory-result-count {
+  min-height: 38px; padding: 5px 9px; border-radius: 10px;
+  background: rgba(207,169,86,.07); display: grid; align-content: center; justify-items: end;
+}
+.inventory-result-count strong { color: #d8bc76; font-size: .78rem; }
+.general-meta-line { display: flex; flex-wrap: wrap; gap: 5px; }
+.general-meta-line span {
+  padding: 2px 6px; border-radius: 999px; background: rgba(207,169,86,.08);
+  color: #c9b77e; font-size: .64rem; white-space: nowrap;
+}
+.choice-filter-stack { display: grid; gap: 8px; }
+.picker-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 430px) {
+  .inventory-filter-panel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .inventory-result-count { grid-column: 1 / -1; grid-auto-flow: column; justify-content: space-between; justify-items: stretch; }
+  .picker-filter-grid select { font-size: .72rem; padding: 0 5px; }
+}
