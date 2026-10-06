@@ -4195,16 +4195,16 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
 
 
 /* ==========================================================
-   v2.4.1 編成相談: PCワイド表示
+   v2.4.2 編成相談: PCワイド表示 + 部隊縦並び
    ========================================================== */
 @media (min-width: 1000px) {
   .page-shell.consultation-wide-shell {
-    width: min(100%, 1480px);
+    width: min(100%, 1680px);
   }
 
   .consultation-wide-shell .page-content {
-    padding-left: 24px;
-    padding-right: 24px;
+    padding-left: 26px;
+    padding-right: 26px;
   }
 
   .consultation-wide-shell .consultation-general-chip-list {
@@ -4213,19 +4213,266 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
   }
 
   .consultation-wide-shell .consultation-builder-layout {
-    grid-template-columns: minmax(0, 2.15fr) minmax(380px, .85fr);
-    gap: 22px;
+    grid-template-columns: minmax(0, 1.45fr) minmax(500px, .95fr);
+    gap: 24px;
   }
 
-  .consultation-wide-shell .consultation-tactic-palette-list {
-    max-height: min(66dvh, 760px);
-  }
-}
-
-@media (min-width: 1200px) {
+  /* 部隊は横に詰めず、1部隊ずつ縦に並べる */
   .consultation-wide-shell .consultation-team-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     align-items: start;
   }
+
+  .consultation-wide-shell .consultation-tactic-palette-list {
+    max-height: min(70dvh, 820px);
+  }
+
+  /* 戦法名を省略せず読めるようにする */
+  .consultation-wide-shell .consultation-palette-tactic strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+
+  .consultation-wide-shell .consultation-assigned-tactic > span:first-child {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+  }
+
+  .consultation-wide-shell .consultation-assigned-tactic {
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 1400px) {
+  .consultation-wide-shell .consultation-builder-layout {
+    grid-template-columns: minmax(0, 1.5fr) minmax(560px, .9fr);
+  }
+}
+
+/* ==========================================================
+   v2.4.3 編成相談: 戦法パレット省スペース + 空き戦法枠
+   ========================================================== */
+.consultation-tactic-palette {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.consultation-palette-search-row {
+  display: grid;
+}
+
+.consultation-palette-search {
+  min-height: 34px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  font-size: .78rem;
+}
+
+.consultation-palette-filters {
+  border: 1px solid rgba(213,224,240,.08);
+  border-radius: 9px;
+  background: rgba(255,255,255,.018);
+  overflow: hidden;
+}
+
+.consultation-palette-filters > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: .7rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.consultation-palette-filters > summary::-webkit-details-marker { display: none; }
+.consultation-palette-filters > summary span {
+  color: var(--muted);
+  font-size: .62rem;
+  font-weight: 500;
+}
+
+.consultation-palette-filter-body {
+  display: grid;
+  gap: 6px;
+  padding: 7px 8px 8px;
+  border-top: 1px solid rgba(213,224,240,.07);
+}
+
+.consultation-palette-filter-body .picker-filter-section {
+  gap: 4px;
+}
+
+.consultation-palette-filter-body .tactic-kind-filter {
+  gap: 4px;
+}
+
+.consultation-palette-filter-body .tactic-kind-chip {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: .65rem;
+}
+
+.consultation-team-member-tactics {
+  display: grid;
+  grid-template-columns: minmax(0,1fr);
+  gap: 4px;
+}
+
+.consultation-assigned-tactic {
+  width: 100%;
+}
+
+.consultation-tactic-slot-empty {
+  min-height: 30px;
+  justify-content: space-between;
+  border-style: dashed;
+  border-color: rgba(148,163,184,.18);
+  background: rgba(255,255,255,.018);
+  color: #8795a8;
+  cursor: text;
+  font: inherit;
+}
+
+.consultation-tactic-slot-empty:hover,
+.consultation-tactic-slot-empty.formation-dnd-over {
+  border-color: rgba(216,188,118,.48);
+  background: rgba(216,188,118,.08);
+  color: #d8c895;
+}
+
+.consultation-tactic-slot-empty > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.consultation-tactic-slot-empty em {
+  color: #8897aa;
+  font-size: .56rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.consultation-assigned-tactic.manual {
+  border-style: dashed;
+}
+
+.consultation-autosave-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -4px 0 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+  color: #98a6b8;
+  font-size: .64rem;
+}
+
+.consultation-autosave-note span { font-weight: 700; color: #b8c3d1; }
+.consultation-autosave-note small { font-size: .6rem; }
+
+@media (min-width: 1000px) {
+  .consultation-wide-shell .consultation-builder-layout {
+    height: calc(100dvh - 118px);
+    max-height: 860px;
+    min-height: 580px;
+    overflow: hidden;
+  }
+
+  .consultation-wide-shell .consultation-builder-teams {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 5px;
+  }
+
+  .consultation-wide-shell .consultation-builder-tactics {
+    position: static;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+}
+
+
+/* ==========================================================
+   v2.4.4 編成相談: 所持戦法 / 伝授パレット
+   ========================================================== */
+.consultation-palette-source-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.consultation-palette-source-tab {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid rgba(213,224,240,.1);
+  border-radius: 9px;
+  background: rgba(255,255,255,.02);
+  color: #aeb9c8;
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.consultation-palette-source-tab b {
+  margin-left: 4px;
+  color: #7f8ea2;
+  font-size: .62rem;
+}
+
+.consultation-palette-source-tab.selected {
+  border-color: rgba(216,188,118,.34);
+  background: rgba(216,188,118,.10);
+  color: #ead99f;
+}
+
+.consultation-palette-source-tab.selected b { color: #c9b77e; }
+
+.consultation-palette-tactic.teachable {
+  border-color: rgba(103,170,214,.18);
+  background: rgba(62,122,161,.07);
+}
+
+.consultation-palette-tactic.teachable:not(.exhausted):hover {
+  border-color: rgba(103,170,214,.34);
+}
+
+.consultation-assigned-tactic.teachable {
+  border-color: rgba(103,170,214,.30);
+  background: rgba(62,122,161,.10);
+}
+
+/* タブが1段増えても一覧領域を圧迫しすぎない */
+.consultation-tactic-palette {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }

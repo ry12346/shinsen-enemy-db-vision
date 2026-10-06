@@ -1,6 +1,10 @@
-const APP_VERSION = "2.4.1";
+const APP_VERSION = "2.4.4";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
+const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
+// 所持武将から伝授できる戦法。Qookka系武将マスタの teachable_skill を日本名へ正規化して保持。
+// 新規PK武将は取得済みの日本版マスタで補完する。
+const TEACHABLE_TACTIC_BY_GENERAL = Object.freeze({"お市":{"grade":"S","kind":"受動","name":"沈魚落雁"},"ねね":{"grade":"S","kind":"受動","name":"沈魚落雁"},"一条信竜":{"grade":"S","kind":"兵種","name":"甲斐弓騎兵"},"一條信竜":{"grade":"S","kind":"兵種","name":"甲斐弓騎兵"},"三好実休":{"grade":"S","kind":"突撃","name":"威風凛凛"},"三枝昌貞":{"grade":"A","kind":"指揮","name":"警戒周到"},"上杉謙信":{"grade":"S","kind":"受動","name":"毘沙門天"},"下方貞清":{"grade":"A","kind":"能動","name":"先陣の勇"},"不破光治":{"grade":"B","kind":"能動","name":"救援"},"九戶政實":{"grade":"A","kind":"受動","name":"一念乱志"},"九戸政実":{"grade":"A","kind":"受動","name":"一念乱志"},"今川義元":{"grade":"S","kind":"受動","name":"独立独歩"},"仙桃院":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"仙石権兵衛":{"grade":"A","kind":"能動","name":"奪気"},"仙石權兵衛":{"grade":"A","kind":"能動","name":"奪気"},"伊達政宗":{"grade":"S","kind":"兵種","name":"龍騎兵"},"伊達晴宗":{"grade":"S","kind":"能動","name":"一力当先"},"佐久間信盛":{"grade":"S","kind":"指揮","name":"罵詈雑言"},"佐久間盛政":{"grade":"A","kind":"能動","name":"鬼玄蕃"},"佐竹義重":{"grade":"S","kind":"突撃","name":"威風凛凛"},"保科正俊":{"grade":"S","kind":"能動","name":"槍弾正"},"內藤信成":{"grade":"B","kind":"能動","name":"嘲罵"},"内藤信成":{"grade":"B","kind":"能動","name":"嘲罵"},"内藤昌豊":{"grade":"S","kind":"能動","name":"回天転運"},"前田利家":{"grade":"S","kind":"兵種","name":"母衣武者"},"前田慶次":{"grade":"S","kind":"突撃","name":"乱世の華"},"加藤清正":{"grade":"S","kind":"能動","name":"所向無敵"},"北条氏康":{"grade":"S","kind":"能動","name":"所領役帳"},"北条綱成":{"grade":"S","kind":"能動","name":"千軍辟易"},"北條氏康":{"grade":"S","kind":"能動","name":"所領役帳"},"北條綱成":{"grade":"S","kind":"能動","name":"千軍辟易"},"十河一存":{"grade":"S","kind":"能動","name":"前後挟撃"},"千坂景親":{"grade":"S","kind":"受動","name":"按甲休兵"},"南部晴政":{"grade":"S","kind":"受動","name":"百戦錬磨"},"原虎胤":{"grade":"S","kind":"指揮","name":"罵詈雑言"},"口羽通良":{"grade":"B","kind":"能動","name":"威圧"},"可児才蔵":{"grade":"S","kind":"受動","name":"死中求活"},"可兒才藏":{"grade":"S","kind":"受動","name":"死中求活"},"吉川広家":{"grade":"A","kind":"受動","name":"休養"},"国司元相":{"grade":"A","kind":"突撃","name":"槍の鈴"},"坂井政尚":{"grade":"A","kind":"能動","name":"先制先登"},"堀直政":{"grade":"S","kind":"能動","name":"荷駄崩し"},"壽桂尼":{"grade":"S","kind":"能動","name":"大智不智"},"多田三八郎":{"grade":"A","kind":"能動","name":"妖怪退治"},"大久保忠世":{"grade":"A","kind":"能動","name":"忠勤励行"},"大久保長安":{"grade":"S","kind":"内政","name":"重農主義"},"大內義隆":{"grade":"S","kind":"能動","name":"静動自在"},"大内義隆":{"grade":"S","kind":"能動","name":"静動自在"},"大祝鶴":{"grade":"S","kind":"指揮","name":"戦意消沈"},"太田牛一":{"grade":"A","kind":"能動","name":"奮戦"},"太田資正":{"grade":"S","kind":"受動","name":"百戦錬磨"},"妻木煕子":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"妻木熙子":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"宇佐美定満":{"grade":"S","kind":"指揮","name":"深慮遠謀"},"宇佐美定滿":{"grade":"S","kind":"指揮","name":"深慮遠謀"},"安東愛季":{"grade":"S","kind":"受動","name":"文武両道"},"安藤守就":{"grade":"A","kind":"受動","name":"一上一下"},"宮部継潤":{"grade":"S","kind":"兵種","name":"僧兵"},"宮部繼潤":{"grade":"S","kind":"兵種","name":"僧兵"},"寧寧":{"grade":"S","kind":"受動","name":"沈魚落雁"},"寿桂尼":{"grade":"S","kind":"能動","name":"大智不智"},"小山田信茂":{"grade":"A","kind":"能動","name":"矢石飛交"},"小山田茂誠":{"grade":"A","kind":"指揮","name":"参謀の助言"},"小島弥太郎":{"grade":"S","kind":"能動","name":"剛毅果断"},"小島彌太郎":{"grade":"S","kind":"能動","name":"剛毅果断"},"小幡景憲":{"grade":"A","kind":"能動","name":"甲州流軍学"},"小早川秀秋":{"grade":"B","kind":"能動","name":"薙ぎ払い"},"尼子晴久":{"grade":"S","kind":"指揮","name":"気炎万丈"},"山內一豊":{"grade":"A","kind":"能動","name":"弓調馬服"},"山内一豊":{"grade":"A","kind":"能動","name":"弓調馬服"},"山本勘助":{"grade":"S","kind":"能動","name":"草木皆兵"},"山県昌景":{"grade":"S","kind":"能動","name":"縦横馳突"},"山縣昌景":{"grade":"S","kind":"能動","name":"縦横馳突"},"岡部元信":{"grade":"S","kind":"指揮","name":"気炎万丈"},"岩城親隆":{"grade":"A","kind":"受動","name":"休養"},"島津貴久":{"grade":"S","kind":"兵種","name":"薩摩鉄砲兵"},"帰蝶":{"grade":"S","kind":"能動","name":"五里霧中"},"徳川家康":{"grade":"S","kind":"受動","name":"盤石耽々"},"德川家康":{"grade":"S","kind":"受動","name":"盤石耽々"},"成田甲斐":{"grade":"S","kind":"能動","name":"前後挟撃"},"斎藤利三":{"grade":"A","kind":"受動","name":"全力戦闘"},"斎藤義竜":{"grade":"S","kind":"突撃","name":"理非曲直"},"新発田重家":{"grade":"A","kind":"能動","name":"敵陣攪乱"},"新發田重家":{"grade":"A","kind":"能動","name":"敵陣攪乱"},"明智光秀":{"grade":"S","kind":"受動","name":"七十二の計"},"明智秀満":{"grade":"S","kind":"受動","name":"死中求活"},"明智秀滿":{"grade":"S","kind":"受動","name":"死中求活"},"朝倉義景":{"grade":"S","kind":"受動","name":"按甲休兵"},"本多忠勝":{"grade":"S","kind":"受動","name":"血戦奮闘"},"本多正信":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"本庄実乃":{"grade":"B","kind":"能動","name":"火計"},"本庄實乃":{"grade":"B","kind":"能動","name":"火計"},"本願寺教如":{"grade":"B","kind":"能動","name":"水計"},"本願寺顕如":{"grade":"S","kind":"受動","name":"一行三昧"},"杉浦玄任":{"grade":"B","kind":"能動","name":"看破"},"松平信康":{"grade":"S","kind":"能動","name":"一力当先"},"松平忠直":{"grade":"B","kind":"突撃","name":"猛撃"},"松永久秀":{"grade":"S","kind":"受動","name":"一行三昧"},"板垣信方":{"grade":"S","kind":"能動","name":"奇謀独断"},"林秀貞":{"grade":"B","kind":"能動","name":"対話"},"柴田勝家":{"grade":"S","kind":"受動","name":"血戦奮闘"},"栗山善助":{"grade":"A","kind":"能動","name":"秋水一色"},"森可成":{"grade":"S","kind":"能動","name":"陣形崩し"},"榊原康政":{"grade":"S","kind":"指揮","name":"気勢衝天"},"樋口兼豊":{"grade":"S","kind":"能動","name":"奇謀独断"},"横山喜内":{"grade":"A","kind":"能動","name":"一六勝負"},"武田信玄":{"grade":"S","kind":"受動","name":"御旗楯無"},"武田義信":{"grade":"A","kind":"突撃","name":"一触即発"},"歸蝶":{"grade":"S","kind":"能動","name":"五里霧中"},"毛利元就":{"grade":"S","kind":"受動","name":"運勝の鼻"},"毛利輝元":{"grade":"A","kind":"能動","name":"祓除"},"毛利隆元":{"grade":"S","kind":"能動","name":"草木皆兵"},"氏家卜全":{"grade":"A","kind":"能動","name":"殿軍奮戦"},"水原親憲":{"grade":"A","kind":"能動","name":"援護射撃"},"池田せん":{"grade":"A","kind":"能動","name":"不意打ち"},"池田千":{"grade":"A","kind":"能動","name":"不意打ち"},"池田恒興":{"grade":"A","kind":"突撃","name":"一刀両断"},"池田輝政":{"grade":"A","kind":"能動","name":"岐阜侍従"},"河尻秀隆":{"grade":"B","kind":"能動","name":"刺突"},"河田長親":{"grade":"S","kind":"能動","name":"金鼓連天"},"津田算長":{"grade":"S","kind":"兵種","name":"鉄砲僧兵"},"浅井長政":{"grade":"S","kind":"能動","name":"金鼓連天"},"浦上宗景":{"grade":"S","kind":"能動","name":"荷駄崩し"},"淺井長政":{"grade":"S","kind":"能動","name":"金鼓連天"},"瑞溪院":{"grade":"S","kind":"能動","name":"静動自在"},"甘利虎泰":{"grade":"S","kind":"能動","name":"剛毅果断"},"甘粕景持":{"grade":"S","kind":"突撃","name":"乗勝追撃"},"甘粕景継":{"grade":"A","kind":"突撃","name":"回山倒海"},"相馬盛胤":{"grade":"S","kind":"突撃","name":"境目奮戦"},"真柄直隆":{"grade":"S","kind":"兵種","name":"大太刀力士隊"},"真田大助":{"grade":"B","kind":"能動","name":"反撃"},"磯野員昌":{"grade":"A","kind":"能動","name":"驍勇善戦"},"福原貞俊":{"grade":"A","kind":"能動","name":"融通自在"},"福島正なら":{"grade":"S","kind":"能動","name":"所向無敵"},"福留親政":{"grade":"A","kind":"能動","name":"奮戦"},"稲葉一鉄":{"grade":"S","kind":"能動","name":"陣形崩し"},"立花道雪":{"grade":"S","kind":"能動","name":"霹靂一撃"},"竹中半兵衛":{"grade":"S","kind":"能動","name":"大智不智"},"筒井順慶":{"grade":"B","kind":"能動","name":"火攻め"},"結城秀康":{"grade":"A","kind":"受動","name":"腹中鱗甲"},"織田信長":{"grade":"S","kind":"能動","name":"紅蓮の炎"},"織田信雄":{"grade":"B","kind":"能動","name":"同討"},"脇坂安治":{"grade":"A","kind":"能動","name":"攻守兼備"},"色部勝長":{"grade":"B","kind":"突撃","name":"連戦"},"色部長実":{"grade":"B","kind":"受動","name":"奮起"},"色部長實":{"grade":"B","kind":"受動","name":"奮起"},"荒木村重":{"grade":"S","kind":"指揮","name":"戦意消沈"},"藤林正保":{"grade":"S","kind":"兵種","name":"伊賀忍者"},"蜂須賀家政":{"grade":"A","kind":"能動","name":"有備無患"},"蜂須賀小六":{"grade":"S","kind":"能動","name":"嚢沙之計"},"諏訪姫":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"諏訪姬":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"豊臣秀吉":{"grade":"S","kind":"能動","name":"水攻干計"},"遠藤基信":{"grade":"B","kind":"能動","name":"殿軍"},"遠藤直経":{"grade":"A","kind":"能動","name":"闇討ち"},"遠藤直經":{"grade":"A","kind":"能動","name":"闇討ち"},"酒井忠次":{"grade":"S","kind":"兵種","name":"三河弓兵隊"},"里見義堯":{"grade":"S","kind":"突撃","name":"境目奮戦"},"金森長近":{"grade":"B","kind":"突撃","name":"破甲"},"鈴木重朝":{"grade":"A","kind":"能動","name":"鉄砲猛撃"},"長宗我部元親":{"grade":"S","kind":"指揮","name":"一領具足"},"長野業正":{"grade":"S","kind":"指揮","name":"戮力同心"},"長野業盛":{"grade":"B","kind":"突撃","name":"不退転"},"阿市":{"grade":"S","kind":"受動","name":"沈魚落雁"},"陶晴賢":{"grade":"S","kind":"突撃","name":"理非曲直"},"飯富虎昌":{"grade":"S","kind":"兵種","name":"赤備え隊"},"馬場信春":{"grade":"S","kind":"受動","name":"以戦養戦"},"高力清長":{"grade":"S","kind":"能動","name":"嚢沙之計"},"高橋紹運":{"grade":"S","kind":"突撃","name":"乱世の華"},"鬼庭左月斎":{"grade":"A","kind":"能動","name":"生死一顧"},"鬼庭左月齋":{"grade":"A","kind":"能動","name":"生死一顧"},"鳥居元忠":{"grade":"A","kind":"受動","name":"百錬成鋼"},"黑田官兵衛":{"grade":"S","kind":"指揮","name":"知者楽水"},"黒田官兵衛":{"grade":"S","kind":"指揮","name":"知者楽水"},"齋藤利三":{"grade":"A","kind":"受動","name":"全力戦闘"},"齋藤義竜":{"grade":"S","kind":"突撃","name":"理非曲直"}});
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -103,11 +107,13 @@ const state = {
   consultationTacticPaletteSearch: "",
   consultationTacticPaletteKinds: [],
   consultationTacticPaletteGrades: ["S"],
+  consultationTacticPaletteSource: "owned",
   consultationSwap: null,
   consultationExpandedTacticSlots: {},
   formationSupportMode: false,
   formationSupportName: "",
   formationSupportSavedAt: "",
+  consultationLocalSavedAt: "",
 };
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -3394,9 +3400,9 @@ function maxTacticCopies(tactic) {
 }
 
 function tacticGradeLabel(tactic) {
-  const grade = Number(tactic?.grade);
-  if (grade === 5) return "S";
-  if (grade === 4) return "A";
+  const raw = String(tactic?.grade ?? "").trim().toUpperCase();
+  if (raw === "S" || raw === "5") return "S";
+  if (raw === "A" || raw === "4") return "A";
   return "";
 }
 
@@ -3781,6 +3787,11 @@ function persistFormationSupportLocal() {
       name: state.formationSupportName || "",
       inventory: state.sharedConsultation.inventory,
       draft: state.consultationDraft,
+      paletteSearch: state.consultationTacticPaletteSearch || "",
+      paletteKinds: state.consultationTacticPaletteKinds ?? [],
+      paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
+      paletteSource: state.consultationTacticPaletteSource || "owned",
+      generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
       savedAt,
     }));
     state.formationSupportSavedAt = savedAt;
@@ -3806,11 +3817,69 @@ function restoreFormationSupportLocal() {
     inventory: saved.inventory,
   };
   state.consultationDraft = saved.draft;
+  state.consultationTacticPaletteSearch = String(saved.paletteSearch || "");
+  state.consultationTacticPaletteKinds = Array.isArray(saved.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
+  state.consultationTacticPaletteGrades = Array.isArray(saved.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
+  state.consultationTacticPaletteSource = saved.paletteSource === "teachable" ? "teachable" : "owned";
+  state.consultationGeneralPickerFilters = saved.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : state.consultationGeneralPickerFilters;
   state.consultationPicker = null;
   state.consultationSwap = null;
   state.consultationExpandedTacticSlots = {};
   state.consultationSubmitted = false;
   return true;
+}
+
+
+function formationConsultationDraftStorageKey(token = state.consultationToken) {
+  const clean = String(token || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 100);
+  return clean ? `${FORMATION_CONSULTATION_DRAFT_PREFIX}${clean}` : "";
+}
+
+function loadFormationConsultationLocal(token = state.consultationToken) {
+  const key = formationConsultationDraftStorageKey(token);
+  if (!key) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (!saved?.draft?.formations) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function persistFormationConsultationLocal() {
+  if (state.formationSupportMode || !state.consultationToken || !state.consultationDraft) return;
+  const key = formationConsultationDraftStorageKey();
+  if (!key) return;
+  try {
+    const savedAt = new Date().toISOString();
+    window.localStorage.setItem(key, JSON.stringify({
+      draft: state.consultationDraft,
+      paletteSearch: state.consultationTacticPaletteSearch || "",
+      paletteKinds: state.consultationTacticPaletteKinds ?? [],
+      paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
+      paletteSource: state.consultationTacticPaletteSource || "owned",
+      generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
+      savedAt,
+    }));
+    state.consultationLocalSavedAt = savedAt;
+  } catch {
+    // localStorageが使えない環境では保存せず、そのまま作業を続ける。
+  }
+}
+
+function clearFormationConsultationLocal(token = state.consultationToken) {
+  const key = formationConsultationDraftStorageKey(token);
+  if (!key) return;
+  try { window.localStorage.removeItem(key); } catch {}
+  state.consultationLocalSavedAt = "";
+}
+
+function persistConsultationWorkspaceLocal() {
+  if (state.formationSupportMode) persistFormationSupportLocal();
+  else persistFormationConsultationLocal();
 }
 
 function renderFormationSupportStart() {
@@ -4346,9 +4415,14 @@ function consultationTacticSwapTargetsHtml(formationIndex, member) {
 function consultationAssignedTacticChipHtml(formationIndex, member, field) {
   const id = member?.[`${field}QookkaId`] || "";
   const name = member?.[`${field}Name`] || "";
-  if (!id || !name) return "";
   const label = field === "tactic2" ? "第2" : "第1";
-  return `<span class="consultation-assigned-tactic" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="assigned" data-dnd-drop-type="tactic" data-dnd-target-kind="slot" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" draggable="true">
+  const teachable = !id && /（伝授）$/.test(name);
+  if (!name) {
+    return `<button type="button" class="consultation-assigned-tactic consultation-tactic-slot-empty" data-action="input-consultation-manual-tactic" data-dnd-context="consultation" data-dnd-drop-type="tactic" data-dnd-target-kind="slot" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" aria-label="${label}戦法を手入力またはここへドロップ">
+      <span><small>${label}</small><span>空き</span></span><em>手入力</em>
+    </button>`;
+  }
+  return `<span class="consultation-assigned-tactic ${id ? "" : teachable ? "teachable" : "manual"}" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="assigned" data-dnd-drop-type="tactic" data-dnd-target-kind="slot" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" draggable="true">
     <span><small>${label}</small>${escapeHtml(name)}</span>
     ${dndHandleHtml(`${name}をドラッグして移動`)}
     <button type="button" class="consultation-tactic-remove" data-action="remove-consultation-tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" aria-label="${escapeAttr(name)}を外す">×</button>
@@ -4368,7 +4442,6 @@ function consultationCompactMemberHtml(formationIndex, member) {
       <div class="consultation-team-member-tactics">
         ${consultationAssignedTacticChipHtml(formationIndex, member, "tactic1")}
         ${consultationAssignedTacticChipHtml(formationIndex, member, "tactic2")}
-        ${selected && !member.tactic1QookkaId && !member.tactic2QookkaId ? `<span class="consultation-tactic-empty-hint">戦法をここへドロップ</span>` : ""}
       </div>
     </div>
     ${selected ? dndHandleHtml(`${member.generalName}をドラッグして移動`) : ""}
@@ -4389,7 +4462,27 @@ function consultationProposalFormationEditorHtml(formation, index) {
   </section>`;
 }
 
-function consultationTacticUsageCount(tacticId) {
+function consultationTacticBaseName(value) {
+  return String(value || "").replace(/\s*（伝授）\s*$/, "").trim();
+}
+
+function consultationTacticUsageCountByName(tacticName) {
+  const target = normalizeSearchText(consultationTacticBaseName(tacticName));
+  if (!target) return 0;
+  let count = 0;
+  for (const formation of state.consultationDraft?.formations ?? []) {
+    for (const member of formation.members ?? []) {
+      for (const field of ["tactic1", "tactic2"]) {
+        const assigned = normalizeSearchText(consultationTacticBaseName(member?.[`${field}Name`] || ""));
+        if (assigned && assigned === target) count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function consultationTacticUsageCount(tacticId, tacticName = "") {
+  if (tacticName) return consultationTacticUsageCountByName(tacticName);
   if (!tacticId) return 0;
   let count = 0;
   for (const formation of state.consultationDraft?.formations ?? []) {
@@ -4401,8 +4494,36 @@ function consultationTacticUsageCount(tacticId) {
   return count;
 }
 
+function consultationTeachableTactics() {
+  const inventory = state.sharedConsultation?.inventory ?? { generals: [], tactics: [] };
+  const ownedTacticByName = new Map((inventory.tactics ?? []).map((tactic) => [normalizeSearchText(tactic.name || ""), tactic]));
+  const grouped = new Map();
+  for (const general of inventory.generals ?? []) {
+    const info = TEACHABLE_TACTIC_BY_GENERAL[String(general.name || "").trim()];
+    if (!info?.name) continue;
+    const key = normalizeSearchText(info.name);
+    if (!key) continue;
+    const existingOwned = ownedTacticByName.get(key);
+    const current = grouped.get(key) ?? {
+      name: info.name,
+      grade: existingOwned ? tacticGradeLabel(existingOwned) : info.grade || "S",
+      kind: existingOwned ? consultationTacticKindLabel(existingOwned.kind) : info.kind || "その他",
+      sourceGenerals: [],
+    };
+    if (!current.sourceGenerals.includes(general.name)) current.sourceGenerals.push(general.name);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+}
+
+function consultationPaletteSourceItems() {
+  return state.consultationTacticPaletteSource === "teachable"
+    ? consultationTeachableTactics()
+    : (state.sharedConsultation?.inventory?.tactics ?? []);
+}
+
 function consultationTacticPaletteItems() {
-  const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const tactics = consultationPaletteSourceItems();
   const query = normalizeSearchText(state.consultationTacticPaletteSearch || "");
   const gradeFilters = state.consultationTacticPaletteGrades ?? ["S"];
   const kindFilters = state.consultationTacticPaletteKinds ?? [];
@@ -4411,33 +4532,55 @@ function consultationTacticPaletteItems() {
     const kind = consultationTacticKindLabel(tactic.kind);
     if (gradeFilters.length && !gradeFilters.includes(grade)) return false;
     if (kindFilters.length && !kindFilters.includes(kind)) return false;
-    if (query && !normalizeSearchText(tactic.name || "").includes(query)) return false;
+    if (query) {
+      const haystack = [tactic.name, ...(tactic.sourceGenerals ?? [])].map((value) => normalizeSearchText(value || "")).join(" ");
+      if (!haystack.includes(query)) return false;
+    }
     return true;
   }).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"ja"));
 }
 
 function consultationTacticPaletteListHtml() {
   const items = consultationTacticPaletteItems();
-  if (!items.length) return `<div class="choice-empty">該当する戦法がありません</div>`;
+  const teachableMode = state.consultationTacticPaletteSource === "teachable";
+  if (!items.length) return `<div class="choice-empty">${teachableMode ? "該当する伝授戦法がありません" : "該当する戦法がありません"}</div>`;
   return items.map((tactic) => {
-    const used = consultationTacticUsageCount(tactic.qookkaId);
-    const limit = maxTacticCopies(tactic);
+    const used = consultationTacticUsageCount(tactic.qookkaId || "", tactic.name || "");
+    const baseName = consultationTacticBaseName(tactic.name);
+    const limit = FORMATION_TACTIC_COPY_LIMITS[baseName] ?? (teachableMode ? 1 : maxTacticCopies(tactic));
     const exhausted = used >= limit;
-    return `<div class="consultation-palette-tactic ${used ? "used" : ""} ${exhausted ? "exhausted" : ""}" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="pool" data-tactic-id="${escapeAttr(tactic.qookkaId)}" data-tactic-name="${escapeAttr(tactic.name)}" draggable="${exhausted ? "false" : "true"}">
-      <div><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${used ? " ・ 使用中" : ""}</small></div>
-      ${exhausted ? `<span class="consultation-palette-used-mark">使用中</span>` : dndHandleHtml(`${tactic.name}を武将へドラッグ`)}
+    const sourceText = teachableMode && tactic.sourceGenerals?.length
+      ? ` ・ ${tactic.sourceGenerals.join(" / ")}から伝授`
+      : "";
+    return `<div class="consultation-palette-tactic ${teachableMode ? "teachable" : ""} ${used ? "used" : ""} ${exhausted ? "exhausted" : ""}" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="${teachableMode ? "teachable" : "pool"}" data-tactic-id="${escapeAttr(teachableMode ? "" : tactic.qookkaId)}" data-tactic-name="${escapeAttr(tactic.name)}" draggable="${exhausted ? "false" : "true"}">
+      <div><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${escapeHtml(sourceText)}${used ? " ・ 使用中" : ""}</small></div>
+      ${exhausted ? `<span class="consultation-palette-used-mark">使用中</span>` : dndHandleHtml(`${tactic.name}${teachableMode ? "（伝授）" : ""}を武将へドラッグ`)}
     </div>`;
   }).join("");
 }
 
 function consultationTacticPaletteHtml() {
-  const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const ownedTactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const teachableTactics = consultationTeachableTactics();
+  const tactics = consultationPaletteSourceItems();
   const kinds = consultationTacticKindValues(tactics);
+  const gradeLabel = (state.consultationTacticPaletteGrades ?? ["S"])[0] || "すべて";
+  const kindLabel = (state.consultationTacticPaletteKinds ?? [])[0] || "すべて";
+  const teachableMode = state.consultationTacticPaletteSource === "teachable";
   return `<aside class="card consultation-tactic-palette" id="consultation-tactic-palette">
-    <div class="consultation-tactic-palette-head"><div><strong>戦法パレット</strong><small>戦法を武将へドラッグ</small></div><span>${tactics.length}件</span></div>
-    <input id="consultation-tactic-palette-search" class="choice-search" type="search" placeholder="戦法名で検索" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" />
-    <div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
-    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
+    <div class="consultation-tactic-palette-head"><div><strong>戦法パレット</strong><small>${teachableMode ? "伝授戦法を武将へドラッグ" : "所持戦法を武将へドラッグ"}</small></div><span>${tactics.length}件</span></div>
+    <div class="consultation-palette-source-tabs" role="tablist" aria-label="戦法の入手元">
+      <button type="button" class="consultation-palette-source-tab ${!teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="owned" aria-pressed="${!teachableMode ? "true" : "false"}">所持戦法 <b>${ownedTactics.length}</b></button>
+      <button type="button" class="consultation-palette-source-tab ${teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="teachable" aria-pressed="${teachableMode ? "true" : "false"}">伝授 <b>${teachableTactics.length}</b></button>
+    </div>
+    <div class="consultation-palette-search-row"><input id="consultation-tactic-palette-search" class="choice-search consultation-palette-search" type="search" placeholder="${teachableMode ? "伝授戦法・伝授元で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" /></div>
+    <details class="consultation-palette-filters">
+      <summary>絞り込み <span>${escapeHtml(gradeLabel)} / ${escapeHtml(kindLabel)}</span></summary>
+      <div class="consultation-palette-filter-body">
+        <div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
+        <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
+      </div>
+    </details>
     <div id="consultation-tactic-palette-list" class="consultation-tactic-palette-list">${consultationTacticPaletteListHtml()}</div>
   </aside>`;
 }
@@ -4445,6 +4588,15 @@ function consultationTacticPaletteHtml() {
 function refreshConsultationTacticPaletteList() {
   const list = document.getElementById("consultation-tactic-palette-list");
   if (list) list.innerHTML = consultationTacticPaletteListHtml();
+}
+
+function refreshConsultationTacticPalette() {
+  const current = document.getElementById("consultation-tactic-palette");
+  if (!current) return;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = consultationTacticPaletteHtml().trim();
+  const next = wrapper.firstElementChild;
+  if (next) current.replaceWith(next);
 }
 
 function formationSupportResultText() {
@@ -4545,6 +4697,7 @@ function renderFormationConsultationBody() {
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
         <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。所持武将一覧は★5を表示し、戦法は下の戦法パレットから割り当てます。</div>
+        <div class="consultation-autosave-note"><span>この端末に自動保存</span>${state.consultationLocalSavedAt ? `<small>最終保存 ${escapeHtml(formatDateTime(state.consultationLocalSavedAt))}</small>` : `<small>入力すると自動保存されます</small>`}</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
         <div class="section-heading"><h2>武将を組む</h2><span>最大10部隊</span></div>
@@ -4578,6 +4731,7 @@ async function renderFormationConsultation() {
   state.consultationTacticPaletteSearch = "";
   state.consultationTacticPaletteKinds = [];
   state.consultationTacticPaletteGrades = ["S"];
+  state.consultationTacticPaletteSource = "owned";
   state.consultationExpandedTacticSlots = {};
   app.innerHTML = pageHtml({
     title: "編成相談",
@@ -4589,7 +4743,16 @@ async function renderFormationConsultation() {
     if (!state.consultationToken) throw new Error("相談URLが不正です。");
     const response = await apiRequest("shared_formation_consultation", { token: state.consultationToken });
     state.sharedConsultation = response.consultation;
-    state.consultationDraft ??= newConsultationProposalDraft();
+    const saved = loadFormationConsultationLocal(state.consultationToken);
+    state.consultationDraft = saved?.draft ?? newConsultationProposalDraft();
+    state.consultationLocalSavedAt = saved?.savedAt || "";
+    if (saved) {
+      state.consultationTacticPaletteSearch = String(saved.paletteSearch || "");
+      state.consultationTacticPaletteKinds = Array.isArray(saved.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
+      state.consultationTacticPaletteGrades = Array.isArray(saved.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
+      state.consultationTacticPaletteSource = saved.paletteSource === "teachable" ? "teachable" : "owned";
+      state.consultationGeneralPickerFilters = saved.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : state.consultationGeneralPickerFilters;
+    }
     renderFormationConsultationBody();
   } catch (error) {
     app.innerHTML = pageHtml({
@@ -5129,7 +5292,7 @@ function formationDndCompatible(source, target) {
       if (!Number.isFinite(source.formationIndex) || !Number.isFinite(target.formationIndex)) return false;
       return Number(source.formationIndex) !== Number(target.formationIndex) || Number(source.slot) !== Number(target.slot);
     }
-    if (source.sourceKind === "pool") return ["member","slot"].includes(target.targetKind) && Number.isFinite(target.formationIndex) && Number.isFinite(target.slot);
+    if (["pool","teachable"].includes(source.sourceKind)) return ["member","slot"].includes(target.targetKind) && Number.isFinite(target.formationIndex) && Number.isFinite(target.slot);
     if (target.targetKind === "slot") {
       return Number(source.formationIndex) !== Number(target.formationIndex) || Number(source.slot) !== Number(target.slot) || source.field !== target.field;
     }
@@ -5184,20 +5347,26 @@ function swapConsultationGeneralCells(source, target) {
 function assignConsultationPaletteTactic(source, target) {
   const targetEntry = consultationMemberAt(target);
   if (!targetEntry?.member?.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return false; }
-  const tactic = (state.sharedConsultation?.inventory?.tactics ?? []).find((row)=>row.qookkaId === source.tacticId);
+  const teachable = source.sourceKind === "teachable";
+  const tactic = teachable
+    ? consultationTeachableTactics().find((row) => normalizeSearchText(row.name) === normalizeSearchText(source.tacticName))
+    : (state.sharedConsultation?.inventory?.tactics ?? []).find((row)=>row.qookkaId === source.tacticId);
   if (!tactic) return false;
-  if (targetEntry.member.tactic1QookkaId === tactic.qookkaId || targetEntry.member.tactic2QookkaId === tactic.qookkaId) {
+  const baseName = consultationTacticBaseName(tactic.name);
+  const assignedNames = [targetEntry.member.tactic1Name, targetEntry.member.tactic2Name].map(consultationTacticBaseName);
+  if (assignedNames.some((name) => normalizeSearchText(name) === normalizeSearchText(baseName))) {
     showToast("この武将にはすでに設定されています。", "error"); return false;
   }
-  if (consultationTacticUsageCount(tactic.qookkaId) >= maxTacticCopies(tactic)) {
+  const limit = FORMATION_TACTIC_COPY_LIMITS[baseName] ?? (teachable ? 1 : maxTacticCopies(tactic));
+  if (consultationTacticUsageCount("", baseName) >= limit) {
     showToast("この戦法はすでに使用されています。", "error"); return false;
   }
   const field = target.targetKind === "slot" && target.field
     ? target.field
-    : (!targetEntry.member.tactic1QookkaId ? "tactic1" : !targetEntry.member.tactic2QookkaId ? "tactic2" : "");
+    : (!targetEntry.member.tactic1Name ? "tactic1" : !targetEntry.member.tactic2Name ? "tactic2" : "");
   if (!field) { showToast("この武将には戦法が2つ設定済みです。外す戦法へ直接ドロップすると置き換えできます。", "error"); return false; }
-  targetEntry.member[`${field}QookkaId`] = tactic.qookkaId;
-  targetEntry.member[`${field}Name`] = tactic.name;
+  targetEntry.member[`${field}QookkaId`] = teachable ? "" : tactic.qookkaId;
+  targetEntry.member[`${field}Name`] = teachable ? `${baseName}（伝授）` : tactic.name;
   return true;
 }
 
@@ -5227,8 +5396,8 @@ function moveConsultationAssignedTactic(source, target) {
   const nameKey = `${source.field}Name`;
   const tacticId = from.member[idKey] || "";
   const tacticName = from.member[nameKey] || "";
-  if (!tacticId) return false;
-  if (to.member.tactic1QookkaId === tacticId || to.member.tactic2QookkaId === tacticId) return false;
+  if (!tacticId && !tacticName) return false;
+  if (tacticId && (to.member.tactic1QookkaId === tacticId || to.member.tactic2QookkaId === tacticId)) return false;
   const targetField = !to.member.tactic1QookkaId ? "tactic1" : !to.member.tactic2QookkaId ? "tactic2" : "";
   if (!targetField) { showToast("移動先の武将には戦法が2つ設定済みです。", "error"); return false; }
   from.member[idKey] = "";
@@ -5250,11 +5419,11 @@ function performFormationDndSwap(source, target) {
   }
   let changed = false;
   if (source.type === "general") changed = swapConsultationGeneralCells(source, target);
-  else if (source.sourceKind === "pool") changed = assignConsultationPaletteTactic(source, target);
+  else if (["pool","teachable"].includes(source.sourceKind)) changed = assignConsultationPaletteTactic(source, target);
   else if (target.targetKind === "slot") changed = swapConsultationTacticCells(source, target);
   else changed = moveConsultationAssignedTactic(source, target);
   if (!changed) return false;
-  if (state.formationSupportMode) persistFormationSupportLocal();
+  persistConsultationWorkspaceLocal();
   renderFormationConsultationBody();
   return true;
 }
@@ -5382,19 +5551,20 @@ document.addEventListener("input", (event) => {
   if (target.id === "consultation-tactic-palette-search") {
     state.consultationTacticPaletteSearch = target.value;
     if (!event.isComposing && target.dataset.composing !== "true") refreshConsultationTacticPaletteList();
+    persistConsultationWorkspaceLocal();
     return;
   }
   const consultationPath = target.dataset?.consultationPath;
   if (consultationPath && state.consultationDraft) {
     state.consultationDraft[consultationPath] = target.value;
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     return;
   }
   const consultationFormationPath = target.dataset?.consultationFormationPath;
   if (consultationFormationPath && state.consultationDraft) {
     const formation = state.consultationDraft.formations?.[Number(target.dataset.index)];
     if (formation) formation[consultationFormationPath] = target.value;
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     return;
   }
   if (target.id === "formation-share-title") {
@@ -5550,7 +5720,7 @@ document.addEventListener("change", async (event) => {
   if (consultationFormationPath && state.consultationDraft) {
     const formation = state.consultationDraft.formations?.[Number(target.dataset.index)];
     if (formation) formation[consultationFormationPath] = target.value;
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     return;
   }
   if (["inventory-star-filter", "inventory-faction-filter", "inventory-cost-filter"].includes(target.id)) {
@@ -5643,6 +5813,7 @@ document.addEventListener("submit", async (event) => {
       state.consultationTacticPaletteSearch = "";
       state.consultationTacticPaletteKinds = [];
       state.consultationTacticPaletteGrades = ["S"];
+      state.consultationTacticPaletteSource = "owned";
       state.consultationSwap = null;
       state.consultationExpandedTacticSlots = {};
       state.consultationSubmitted = false;
@@ -5681,6 +5852,7 @@ document.addEventListener("submit", async (event) => {
     showLoading("編成案を送信中...");
     try {
       await apiRequest("formation_consultation_submit", { token: state.consultationToken, proposal: state.consultationDraft });
+      clearFormationConsultationLocal(state.consultationToken);
       state.consultationSubmitted = true;
       state.consultationPicker = null;
       renderFormationConsultationBody();
@@ -5929,11 +6101,22 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "formation-dnd-handle") return;
 
+  if (action === "set-consultation-palette-source") {
+    state.consultationTacticPaletteSource = button.dataset.source === "teachable" ? "teachable" : "owned";
+    state.consultationTacticPaletteSearch = "";
+    state.consultationTacticPaletteKinds = [];
+    state.consultationTacticPaletteGrades = ["S"];
+    persistConsultationWorkspaceLocal();
+    refreshConsultationTacticPalette();
+    return;
+  }
+
   if (action === "toggle-consultation-palette-grade") {
     const grade = String(button.dataset.grade || "all");
     state.consultationTacticPaletteGrades = grade === "all" ? [] : [grade];
     refreshTacticGradeFilterButtons("toggle-consultation-palette-grade", state.consultationTacticPaletteGrades);
     refreshConsultationTacticPaletteList();
+    persistConsultationWorkspaceLocal();
     return;
   }
   if (action === "toggle-consultation-palette-kind") {
@@ -5941,15 +6124,31 @@ document.addEventListener("click", async (event) => {
     state.consultationTacticPaletteKinds = kind === "all" ? [] : [kind];
     refreshTacticKindFilterButtons("toggle-consultation-palette-kind", state.consultationTacticPaletteKinds);
     refreshConsultationTacticPaletteList();
+    persistConsultationWorkspaceLocal();
     return;
   }
+  if (action === "input-consultation-manual-tactic") {
+    const entry = consultationMemberAt({ formationIndex:Number(button.dataset.formationIndex), slot:Number(button.dataset.slot) });
+    const field = button.dataset.field === "tactic2" ? "tactic2" : "tactic1";
+    if (!entry?.member?.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return; }
+    const current = entry.member[`${field}Name`] || "";
+    const value = window.prompt("未所持など、手入力する戦法名", current);
+    if (value === null) return;
+    const name = String(value).trim().slice(0, 100);
+    entry.member[`${field}QookkaId`] = "";
+    entry.member[`${field}Name`] = name;
+    persistConsultationWorkspaceLocal();
+    renderFormationConsultationBody();
+    return;
+  }
+
   if (action === "remove-consultation-tactic") {
     const entry = consultationMemberAt({ formationIndex:Number(button.dataset.formationIndex), slot:Number(button.dataset.slot) });
     const field = button.dataset.field === "tactic2" ? "tactic2" : "tactic1";
     if (entry?.member) {
       entry.member[`${field}QookkaId`] = "";
       entry.member[`${field}Name`] = "";
-      if (state.formationSupportMode) persistFormationSupportLocal();
+      persistConsultationWorkspaceLocal();
       renderFormationConsultationBody();
     }
     return;
@@ -6194,18 +6393,20 @@ document.addEventListener("click", async (event) => {
     finally { hideLoading(); }
   }
   if (action === "new-consultation-proposal") {
+    clearFormationConsultationLocal(state.consultationToken);
     state.consultationSubmitted = false;
     state.consultationDraft = newConsultationProposalDraft();
     state.consultationPicker = null;
     state.consultationSwap = null;
     state.consultationExpandedTacticSlots = {};
+    persistConsultationWorkspaceLocal();
     renderFormationConsultationBody();
   }
   if (action === "add-consultation-formation") {
     if (!state.consultationDraft || state.consultationDraft.formations.length >= 10) return;
     state.consultationDraft.formations.push(newConsultationProposalFormation(state.consultationDraft.formations.length));
     normalizeConsultationProposalDraftForBuilder();
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     renderFormationConsultationBody();
   }
   if (action === "remove-consultation-formation") {
@@ -6215,7 +6416,7 @@ document.addEventListener("click", async (event) => {
     state.consultationPicker = null;
     state.consultationSwap = null;
     state.consultationExpandedTacticSlots = {};
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     renderFormationConsultationBody();
   }
   if (action === "open-consultation-picker") {
@@ -6289,7 +6490,7 @@ document.addEventListener("click", async (event) => {
       member.tactic2QookkaId = ids[1] || ""; member.tactic2Name = second?.name || "";
     }
     state.consultationPicker = null;
-    if (state.formationSupportMode) persistFormationSupportLocal();
+    persistConsultationWorkspaceLocal();
     renderFormationConsultationBody();
   }
   if (action === "start-consultation-swap") {
