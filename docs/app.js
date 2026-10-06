@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.7";
+const APP_VERSION = "2.4.8";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
@@ -4688,12 +4688,39 @@ function mountConsultationMobileTacticPicker() {
   app.insertAdjacentHTML("beforeend", html);
 }
 
+function captureConsultationScrollState() {
+  const teams = document.querySelector(".consultation-builder-teams");
+  const palette = document.getElementById("consultation-tactic-palette-list");
+  return {
+    windowX: window.scrollX,
+    windowY: window.scrollY,
+    teamsTop: teams ? teams.scrollTop : 0,
+    paletteTop: palette ? palette.scrollTop : 0,
+  };
+}
+
+function restoreConsultationScrollState(saved) {
+  if (!saved) return;
+  window.requestAnimationFrame(() => {
+    window.scrollTo(saved.windowX || 0, saved.windowY || 0);
+    const teams = document.querySelector(".consultation-builder-teams");
+    const palette = document.getElementById("consultation-tactic-palette-list");
+    if (teams) teams.scrollTop = saved.teamsTop || 0;
+    if (palette) palette.scrollTop = saved.paletteTop || 0;
+  });
+}
+
 function rerenderFormationConsultationPreserveScroll() {
-  const x = window.scrollX;
-  const y = window.scrollY;
+  const saved = captureConsultationScrollState();
   renderFormationConsultationBody();
   if (state.consultationMobileTacticTarget) mountConsultationMobileTacticPicker();
-  window.requestAnimationFrame(() => window.scrollTo(x, y));
+  restoreConsultationScrollState(saved);
+}
+
+function renderFormationConsultationBodyPreserveScroll() {
+  const saved = captureConsultationScrollState();
+  renderFormationConsultationBody();
+  restoreConsultationScrollState(saved);
 }
 
 function refreshConsultationTacticPaletteList() {
@@ -6642,11 +6669,11 @@ document.addEventListener("click", async (event) => {
       kindFilters: kind === "tactic" ? [...(state.consultationTacticPickerKinds ?? [])] : [],
       gradeFilters: kind === "tactic" ? [...(state.consultationTacticPickerGrades ?? ["S"])] : [],
     };
-    renderFormationConsultationBody();
+    renderFormationConsultationBodyPreserveScroll();
   }
   if (action === "close-consultation-picker") {
     state.consultationPicker = null;
-    renderFormationConsultationBody();
+    renderFormationConsultationBodyPreserveScroll();
   }
   if (action === "clear-consultation-multi-choice") {
     if (!state.consultationPicker) return;
@@ -6694,7 +6721,7 @@ document.addEventListener("click", async (event) => {
     }
     state.consultationPicker = null;
     persistConsultationWorkspaceLocal();
-    renderFormationConsultationBody();
+    renderFormationConsultationBodyPreserveScroll();
   }
   if (action === "start-consultation-swap") {
     state.consultationSwap = { kind: button.dataset.kind === "tactic" ? "tactic" : "general", formationIndex: Number(button.dataset.formationIndex), first: null };
