@@ -1,4 +1,4 @@
-const APP_VERSION = "1.9.3";
+const APP_VERSION = "1.9.4";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -69,6 +69,7 @@ const state = {
   formationDraft: null,
   formationPicker: null,
   formationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
+  formationTacticPickerKind: "all",
   formationSwap: null,
   sharedFormation: null,
   shareToken: "",
@@ -3361,7 +3362,11 @@ function currentPickerOptions() {
       return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
     })
     .filter((item) => {
-      if (picker.kind !== "general") return !query || normalizeSearchText(item.name).includes(query);
+      if (picker.kind !== "general") {
+        const matchesQuery = !query || normalizeSearchText(item.name).includes(query);
+        const kindFilter = picker.kindFilter || state.formationTacticPickerKind || "all";
+        return matchesQuery && (kindFilter === "all" || consultationTacticKindLabel(item.kind) === kindFilter);
+      }
       const filters = picker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
       return generalMatchesFilter(item, picker.query || "", filters);
     })
@@ -3406,26 +3411,34 @@ function formationPickerSelectedSummaryHtml() {
   return labels.length ? `<div class="multi-choice-summary">${labels.join("")}</div>` : `<div class="multi-choice-summary empty">未選択</div>`;
 }
 
-function formationPickerGeneralFiltersHtml() {
-  if (!state.formationPicker || state.formationPicker.kind !== "general") return "";
-  const { factions, costs } = generalFilterValues(state.myInventory?.generals ?? []);
-  const filters = state.formationPicker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
-  return `
-    <div class="picker-filter-grid">
-      <select id="formation-picker-star" aria-label="レア度">
-        <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
-        <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
-        <option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option>
-      </select>
-      <select id="formation-picker-faction" aria-label="勢力">
-        <option value="all">全勢力</option>
-        ${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
-      </select>
-      <select id="formation-picker-cost" aria-label="コスト">
-        <option value="all">全コスト</option>
-        ${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}
-      </select>
-    </div>`;
+function formationPickerFiltersHtml() {
+  const picker = state.formationPicker;
+  if (!picker) return "";
+  if (picker.kind === "general") {
+    const { factions, costs } = generalFilterValues(state.myInventory?.generals ?? []);
+    const filters = picker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
+    return `
+      <div class="picker-filter-grid">
+        <select id="formation-picker-star" aria-label="レア度">
+          <option value="5" ${filters.star === "5" ? "selected" : ""}>★5</option>
+          <option value="4" ${filters.star === "4" ? "selected" : ""}>★4</option>
+          <option value="all" ${filters.star === "all" ? "selected" : ""}>全レア</option>
+        </select>
+        <select id="formation-picker-faction" aria-label="勢力">
+          <option value="all">全勢力</option>
+          ${factions.map((value) => `<option value="${escapeAttr(value)}" ${filters.faction === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+        </select>
+        <select id="formation-picker-cost" aria-label="コスト">
+          <option value="all">全コスト</option>
+          ${costs.map((value) => `<option value="${value}" ${String(filters.cost) === String(value) ? "selected" : ""}>コスト${value}</option>`).join("")}
+        </select>
+      </div>`;
+  }
+  const kinds = consultationTacticKindValues(state.myInventory?.tactics ?? []);
+  const selected = picker.kindFilter || state.formationTacticPickerKind || "all";
+  return `<div class="picker-filter-grid consultation-tactic-filter-grid">
+    <select id="formation-picker-kind" aria-label="戦法種別"><option value="all">全種別</option>${kinds.map((kind) => `<option value="${escapeAttr(kind)}" ${selected === kind ? "selected" : ""}>${escapeHtml(kind)}</option>`).join("")}</select>
+  </div>`;
 }
 
 function formationPickerHtml() {
@@ -3441,7 +3454,7 @@ function formationPickerHtml() {
       ${formationPickerSelectedSummaryHtml()}
       <div class="choice-filter-stack">
         <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
-        ${formationPickerGeneralFiltersHtml()}
+        ${formationPickerFiltersHtml()}
       </div>
       <div id="formation-picker-list" class="choice-list">${formationPickerListHtml()}</div>
       <div class="multi-choice-footer"><button type="button" class="secondary-button" data-action="clear-formation-multi-choice">選択解除</button><button type="button" class="primary-button" data-action="confirm-formation-multi-choice">決定</button></div>
@@ -4704,6 +4717,14 @@ document.addEventListener("change", async (event) => {
     }
     return;
   }
+  if (target.id === "formation-picker-kind") {
+    if (state.formationPicker?.kind === "tactic") {
+      state.formationPicker.kindFilter = target.value;
+      state.formationTacticPickerKind = target.value;
+      refreshFormationPickerOptions();
+    }
+    return;
+  }
   if (target.id === "report-files") {
     await prepareFiles(target.files);
   }
@@ -5152,6 +5173,7 @@ document.addEventListener("click", async (event) => {
         ? (state.formationDraft?.members ?? []).map((row) => row.generalQookkaId).filter(Boolean)
         : [member?.tactic1QookkaId, member?.tactic2QookkaId].filter(Boolean),
       filters: kind === "general" ? { ...(state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
+      kindFilter: kind === "tactic" ? (state.formationTacticPickerKind || "all") : "all",
     };
     renderFormationEditor();
   }
