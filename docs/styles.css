@@ -4476,3 +4476,366 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
 .consultation-tactic-palette {
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }
+
+
+/* ==========================================================
+   v2.4.6 編成相談: 戦法一覧スクロール安定化
+   ========================================================== */
+.consultation-tactic-palette {
+  min-height: 0;
+}
+
+.consultation-tactic-palette-list {
+  min-height: 132px;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.consultation-palette-filters[open] .consultation-palette-filter-body {
+  max-height: min(26dvh, 220px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 899px) {
+  .consultation-tactic-palette-list {
+    min-height: 120px;
+    max-height: min(30dvh, 320px);
+  }
+}
+
+@media (min-width: 1000px) {
+  .consultation-wide-shell .consultation-tactic-palette-list {
+    min-height: 160px;
+    max-height: none;
+  }
+}
+
+/* ==========================================================
+   v2.4.7 編成相談: スマホ専用タップUI
+   ========================================================== */
+.consultation-mobile-builder-hint,
+.consultation-mobile-inventory-actions,
+.consultation-mobile-tactic-backdrop,
+.consultation-mobile-tactic-sheet {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  /* スマホではPC用の常設戦法パレットを出さず、戦法枠タップで選択する */
+  .consultation-builder-layout {
+    display: block;
+  }
+  .consultation-builder-tactics {
+    display: none !important;
+  }
+  .consultation-builder-teams,
+  .consultation-team-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .consultation-mobile-builder-hint {
+    display: block;
+    margin: -2px 0 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(216,188,118,.13);
+    border-radius: 10px;
+    background: rgba(216,188,118,.055);
+    color: #c8c1ad;
+    font-size: .68rem;
+    line-height: 1.45;
+  }
+
+  .consultation-mobile-inventory-actions {
+    display: block;
+    position: sticky;
+    bottom: 6px;
+    padding-top: 8px;
+    background: linear-gradient(180deg, rgba(24,31,40,0), rgba(24,31,40,.96) 30%);
+    z-index: 3;
+  }
+  .consultation-mobile-inventory-actions .primary-button { width: 100%; }
+
+  /* 3武将を横に潰さず、スマホでは1武将=1行にする */
+  .consultation-team-strip {
+    padding: 9px;
+    gap: 8px;
+  }
+  .consultation-team-strip-body {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .consultation-team-members {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .consultation-team-member-shell {
+    min-height: 0;
+    overflow: visible;
+  }
+  .consultation-team-member-drop {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(88px, .65fr) minmax(0, 1.35fr);
+    align-items: start;
+    gap: 8px;
+    padding: 8px;
+  }
+  .consultation-team-member-shell.empty .consultation-team-member-drop {
+    grid-template-columns: 1fr;
+    min-height: 46px;
+    align-items: center;
+    padding: 8px;
+  }
+  .consultation-team-member-shell.empty .consultation-team-member-tactics {
+    display: none;
+  }
+  .consultation-team-member-name {
+    align-content: center;
+    min-height: 38px;
+  }
+  .consultation-team-member-name strong {
+    font-size: .82rem;
+    line-height: 1.3;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .consultation-team-member-name small { font-size: .62rem; }
+  .consultation-team-member-tactics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .consultation-assigned-tactic {
+    min-height: 40px;
+    padding: 6px 7px;
+    border-radius: 9px;
+    font-size: .68rem;
+    cursor: pointer;
+  }
+  .consultation-assigned-tactic > span:first-child {
+    display: grid;
+    gap: 1px;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.25;
+  }
+  .consultation-assigned-tactic > span:first-child small {
+    display: block;
+    font-size: .54rem;
+  }
+  .consultation-tactic-slot-empty {
+    min-height: 40px;
+    cursor: pointer;
+  }
+  .consultation-tactic-slot-empty em {
+    font-size: .58rem;
+    color: #c9b77e;
+  }
+  /* ドラッグはPCの主操作。スマホでは誤操作防止のためハンドルを隠す */
+  .consultation-team-member-shell > .formation-dnd-handle,
+  .consultation-assigned-tactic .formation-dnd-handle {
+    display: none !important;
+  }
+
+  .consultation-team-select-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 7px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .consultation-team-select-button span { font-size: .72rem; }
+  .consultation-team-select-button small { font-size: .62rem; }
+
+  /* 戦法選択は画面を覆う専用シート。背後の部隊をスクロールさせない */
+  .consultation-mobile-tactic-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 180;
+    background: rgba(0,0,0,.58);
+    backdrop-filter: blur(2px);
+  }
+  .consultation-mobile-tactic-sheet {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0,1fr) auto;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 181;
+    height: min(92dvh, 860px);
+    padding: 10px 11px calc(10px + env(safe-area-inset-bottom));
+    border: 1px solid rgba(213,224,240,.14);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    background: #111923;
+    box-shadow: 0 -18px 50px rgba(0,0,0,.45);
+    overflow: hidden;
+    gap: 8px;
+  }
+  .consultation-mobile-tactic-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+  .consultation-mobile-tactic-header > div {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .consultation-mobile-tactic-header small {
+    color: #91a0b3;
+    font-size: .62rem;
+  }
+  .consultation-mobile-tactic-header strong {
+    color: #edf1f6;
+    font-size: .9rem;
+    line-height: 1.3;
+  }
+  .consultation-mobile-tactic-header span {
+    color: #c9b77e;
+    font-size: .64rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .consultation-mobile-tactic-tools {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+  .consultation-mobile-tactic-tools .choice-search {
+    min-height: 38px;
+    font-size: .8rem;
+  }
+  .consultation-mobile-filter-row {
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .consultation-mobile-filter-row > small {
+    color: #8f9db0;
+    font-size: .58rem;
+    white-space: nowrap;
+  }
+  .consultation-mobile-filter-row .tactic-kind-filter {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 5px;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 1px;
+  }
+  .consultation-mobile-filter-row .tactic-kind-filter::-webkit-scrollbar { display: none; }
+  .consultation-mobile-filter-row .tactic-kind-chip {
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 5px 9px;
+    font-size: .66rem;
+  }
+
+  .consultation-mobile-tactic-list {
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    display: grid;
+    align-content: start;
+    gap: 6px;
+    padding: 1px 1px 4px;
+  }
+  .consultation-mobile-tactic-option {
+    width: 100%;
+    min-height: 52px;
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 9px 8px 11px;
+    border: 1px solid rgba(213,224,240,.10);
+    border-radius: 11px;
+    background: rgba(6,12,19,.48);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+  }
+  .consultation-mobile-tactic-option > span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .consultation-mobile-tactic-option strong {
+    font-size: .79rem;
+    line-height: 1.3;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .consultation-mobile-tactic-option small {
+    color: #8f9db0;
+    font-size: .59rem;
+    line-height: 1.3;
+  }
+  .consultation-mobile-tactic-option > b {
+    min-width: 44px;
+    color: #c9b77e;
+    font-size: .62rem;
+    text-align: right;
+  }
+  .consultation-mobile-tactic-option.teachable {
+    border-color: rgba(103,170,214,.22);
+    background: rgba(62,122,161,.08);
+  }
+  .consultation-mobile-tactic-option.current {
+    border-color: rgba(216,188,118,.34);
+    background: rgba(216,188,118,.09);
+  }
+  .consultation-mobile-tactic-option:disabled {
+    opacity: .55;
+  }
+
+  .consultation-mobile-tactic-footer {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 8px;
+    padding-top: 2px;
+  }
+  .consultation-mobile-tactic-footer .secondary-button {
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 380px) {
+  .consultation-team-member-drop {
+    grid-template-columns: 1fr;
+  }
+  .consultation-team-member-name { min-height: 0; }
+  .consultation-team-member-tactics { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 899px) {
+  .consultation-tactic-remove {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    font-size: .82rem;
+  }
+}
