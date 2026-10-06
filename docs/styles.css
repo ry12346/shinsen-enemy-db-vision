@@ -3529,3 +3529,131 @@ button.tag-chip { cursor:pointer; touch-action:manipulation; }
   .shared-card-footer { align-items:flex-start; flex-direction:column; }
   .shared-card-footer .secondary-button,.shared-card-footer .primary-button { width:100%; }
 }
+
+/* v2.1.0 シーズン切替 */
+.season-reset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.season-reset-panel {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, .24));
+  border-radius: 14px;
+  background: rgba(127, 127, 127, .04);
+}
+
+.season-reset-panel > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.season-reset-panel > div:first-child small {
+  color: var(--muted-color, #6b7280);
+}
+
+@media (max-width: 720px) {
+  .season-reset-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* v2.2.0 敵一覧検索 / 他人編成支援 */
+.enemy-search-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: 10px;
+  padding: 12px 16px 4px;
+  align-items: end;
+}
+.enemy-search-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.enemy-search-field > span {
+  font-size: .76rem;
+  font-weight: 700;
+  color: var(--muted, #68717c);
+}
+.enemy-search-field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line, #d9dde3);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  padding: 0 12px;
+  font: inherit;
+}
+.enemy-search-clear {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-height: 34px;
+}
+.formation-support-start-page,
+.formation-support-workspace {
+  display: grid;
+  gap: 12px;
+}
+.formation-support-route-card > div:first-child p {
+  margin: 4px 0 0;
+}
+.formation-support-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.formation-support-toolbar > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.support-general-chip {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.support-dupe-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.support-dupe-control > small {
+  min-width: 3.5em;
+  color: var(--muted, #68717c);
+}
+.support-dupe-zero {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line, #d9dde3);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: .75rem;
+}
+.support-dupe-zero.selected {
+  border-color: currentColor;
+  font-weight: 700;
+}
+.support-dupe-dots {
+  display: flex;
+  gap: 2px;
+}
+@media (max-width: 720px) {
+  .enemy-search-panel {
+    grid-template-columns: 1fr;
+    padding: 10px 12px 2px;
+  }
+  .enemy-search-clear {
+    grid-column: auto;
+  }
+  .formation-support-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
