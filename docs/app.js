@@ -1,4 +1,4 @@
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.4.0";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
@@ -100,6 +100,9 @@ const state = {
   consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
   consultationTacticPickerKinds: [],
   consultationTacticPickerGrades: ["S"],
+  consultationTacticPaletteSearch: "",
+  consultationTacticPaletteKinds: [],
+  consultationTacticPaletteGrades: ["S"],
   consultationSwap: null,
   consultationExpandedTacticSlots: {},
   formationSupportMode: false,
@@ -3860,7 +3863,7 @@ function formationConsultationUrl(token) {
 
 function newConsultationProposalFormation(index = 0) {
   return {
-    name: `第${index + 1}軍`,
+    name: `第${index + 1}部隊`,
     troopType: "",
     troopLevel: "",
     note: "",
@@ -3882,6 +3885,16 @@ function newConsultationProposalDraft() {
     note: "",
     formations: [newConsultationProposalFormation(0)],
   };
+}
+
+function normalizeConsultationProposalDraftForBuilder() {
+  if (!state.consultationDraft?.formations) return;
+  state.consultationDraft.formations.forEach((formation, index) => {
+    formation.name = `第${index + 1}部隊`;
+    formation.troopType = "";
+    formation.troopLevel = null;
+    formation.note = "";
+  });
 }
 
 function consultationManagementHtml() {
@@ -3916,7 +3929,7 @@ function renderFormationConsultationCreate() {
         <form class="form-stack" data-form="create-formation-consultation">
           <div class="card form-stack">
             <label class="field"><span>相談タイトル</span><input name="title" maxlength="80" value="編成相談" required placeholder="例：PK2 対人3軍の編成相談" /></label>
-            <label class="field"><span>相談内容・条件（任意）</span><textarea name="note" maxlength="1000" rows="5" placeholder="例：対人用で3軍まで。第1軍を最優先。兵種は問いません。"></textarea></label>
+            <label class="field"><span>相談内容・条件（任意）</span><textarea name="note" maxlength="1000" rows="5" placeholder="例：対人用で3軍まで。第1軍を最優先。"></textarea></label>
           </div>
           <div class="card consultation-scope-card">
             <strong>相談相手に見える情報</strong>
@@ -3965,7 +3978,7 @@ function consultationProposalHtml(proposal) {
           <section class="consultation-proposal-formation">
             <div class="shared-set-card-heading">
               <div><span class="shared-set-number">${index + 1}</span><strong>${escapeHtml(formation.name || `第${index + 1}軍`)}</strong></div>
-              <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
+              <small>武将3名・戦法</small>
             </div>
             <div class="formation-summary">${formationSummaryMembers(enrichConsultationProposalFormation(formation))}</div>
             ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
@@ -4159,17 +4172,6 @@ function consultationInventoryHtml() {
     return a.localeCompare(b, "ja");
   });
 
-  const sTactics = (inventory.tactics ?? [])
-    .filter((tactic) => Number(tactic.grade) === 5)
-    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
-  const tacticGroups = new Map();
-  for (const tactic of sTactics) {
-    const kind = consultationTacticKindLabel(tactic.kind);
-    if (!tacticGroups.has(kind)) tacticGroups.set(kind, []);
-    tacticGroups.get(kind).push(tactic);
-  }
-  const tacticKinds = consultationTacticKindValues(sTactics);
-
   const generalGroupsHtml = factionNames.length
     ? factionNames.map((faction) => `
         <section class="consultation-inventory-group">
@@ -4182,24 +4184,10 @@ function consultationInventoryHtml() {
         </section>`).join("")
     : `<div class="notice subtle">★5武将の分類情報を取得できませんでした。編成作成では全所持武将から選択できます。</div>`;
 
-  const tacticGroupsHtml = tacticKinds.length
-    ? tacticKinds.map((kind) => `
-        <section class="consultation-inventory-group">
-          <div class="consultation-inventory-group-title"><strong>${escapeHtml(kind)}戦法</strong><span>${tacticGroups.get(kind).length}件</span></div>
-          <div class="tactic-chip-list consultation-tactic-chip-list">
-            ${tacticGroups.get(kind).map((tactic) => `<span class="tactic-chip">${escapeHtml(tactic.name)}</span>`).join("")}
-          </div>
-        </section>`).join("")
-    : `<div class="notice subtle">S戦法の分類情報を取得できませんでした。編成作成では全所持戦法から選択できます。</div>`;
-
   return `
     <details class="card consultation-inventory-card" open>
       <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>${state.formationSupportMode ? `編成候補 ${supportCandidateCount}名 ・ ` : ""}勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
       <div class="consultation-inventory-body consultation-grouped-inventory">${generalGroupsHtml}</div>
-    </details>
-    <details class="card consultation-inventory-card" open>
-      <summary><strong>所持戦法 S ${sTactics.length}</strong><span>種別別 ・ 全所持${inventory.tactics.length}件</span></summary>
-      <div class="consultation-inventory-body consultation-grouped-inventory">${tacticGroupsHtml}</div>
     </details>`;
 }
 
@@ -4367,46 +4355,108 @@ function consultationTacticSwapTargetsHtml(formationIndex, member) {
   </div>`;
 }
 
-function consultationMemberEditorHtml(formationIndex, member) {
-  const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === member.generalQookkaId);
-  const expanded = Boolean(member.generalName) && consultationTacticPanelExpanded(formationIndex, member.slot);
-  return `
-    <section class="formation-member-editor ${expanded ? "tactics-open" : ""}">
-      <div class="member-editor-title"><span>${escapeHtml(formationMemberRole(member.slot))}</span>${general ? `<strong>${escapeHtml(consultationDupeText(general))}</strong>` : ""}</div>
-      <div class="selected-general-display ${member.generalName ? "selected" : ""}" data-action="toggle-consultation-tactic-panel" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-dnd-type="general" data-dnd-context="consultation" data-dnd-drop-type="general" draggable="${member.generalName ? "true" : "false"}" role="button" tabindex="0" aria-expanded="${expanded ? "true" : "false"}">
-        <div class="selected-general-main"><span>${member.generalName ? escapeHtml(member.generalName) : "武将未選択"}</span>${general?.inherentTacticName ? `<small>固有：${escapeHtml(general.inherentTacticName)}</small>` : ""}</div>
-        ${member.generalName ? dndHandleHtml(`${member.generalName}をドラッグして移動`) : ""}
-        ${member.generalName ? `<span class="tactic-panel-chevron">${expanded ? "▲" : "▼"}</span>` : ""}
-      </div>
-      ${expanded ? `<div class="formation-tactic-panel">
-        <div class="formation-tactic-dnd-grid">
-          ${tacticDndSlotHtml({ context:"consultation", formationIndex, member, field:"tactic1", label:"第1戦法" })}
-          ${tacticDndSlotHtml({ context:"consultation", formationIndex, member, field:"tactic2", label:"第2戦法" })}
-        </div>
-        <button type="button" class="search-choice-button tactic-batch-choice ${(member.tactic1Name || member.tactic2Name) ? "selected" : ""}" data-action="open-consultation-picker" data-kind="tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="tactics"><span><b>${(member.tactic1Name || member.tactic2Name) ? "戦法を変更" : "戦法を選択"}</b><small>第1・第2戦法をまとめて選択</small></span><small>選択 ›</small></button>
-      </div>` : ""}
-    </section>`;
+function consultationAssignedTacticChipHtml(formationIndex, member, field) {
+  const id = member?.[`${field}QookkaId`] || "";
+  const name = member?.[`${field}Name`] || "";
+  if (!id || !name) return "";
+  const label = field === "tactic2" ? "第2" : "第1";
+  return `<span class="consultation-assigned-tactic" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="assigned" data-dnd-drop-type="tactic" data-dnd-target-kind="slot" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" draggable="true">
+    <span><small>${label}</small>${escapeHtml(name)}</span>
+    ${dndHandleHtml(`${name}をドラッグして移動`)}
+    <button type="button" class="consultation-tactic-remove" data-action="remove-consultation-tactic" data-formation-index="${formationIndex}" data-slot="${member.slot}" data-field="${field}" aria-label="${escapeAttr(name)}を外す">×</button>
+  </span>`;
 }
 
-function consultationGeneralBatchButtonHtml(formationIndex, formation) {
-  const names = (formation?.members ?? []).map((member) => member.generalName).filter(Boolean);
-  return `<button type="button" class="search-choice-button formation-general-batch-button ${names.length ? "selected" : ""}" data-action="open-consultation-picker" data-kind="general" data-formation-index="${formationIndex}" data-field="generals"><span><b>${names.length ? escapeHtml(names.join(" / ")) : "武将を選択"}</b><small>大将・副将1・副将2をまとめて選択</small></span><small>選択 ›</small></button>`;
+function consultationCompactMemberHtml(formationIndex, member) {
+  const inventory = state.sharedConsultation?.inventory?.generals ?? [];
+  const general = inventory.find((row) => row.qookkaId === member.generalQookkaId);
+  const selected = Boolean(member.generalQookkaId);
+  return `<div class="consultation-team-member-shell ${selected ? "selected" : "empty"}" data-dnd-type="general" data-dnd-context="consultation" data-dnd-drop-type="general" data-formation-index="${formationIndex}" data-slot="${member.slot}" draggable="${selected ? "true" : "false"}">
+    <div class="consultation-team-member-drop" data-dnd-drop-type="tactic" data-dnd-context="consultation" data-dnd-target-kind="member" data-formation-index="${formationIndex}" data-slot="${member.slot}">
+      <div class="consultation-team-member-name">
+        <strong>${selected ? escapeHtml(member.generalName) : escapeHtml(formationMemberRole(member.slot))}</strong>
+        <small>${general ? escapeHtml(consultationDupeText(general)) : selected ? "" : "未選択"}</small>
+      </div>
+      <div class="consultation-team-member-tactics">
+        ${consultationAssignedTacticChipHtml(formationIndex, member, "tactic1")}
+        ${consultationAssignedTacticChipHtml(formationIndex, member, "tactic2")}
+        ${selected && !member.tactic1QookkaId && !member.tactic2QookkaId ? `<span class="consultation-tactic-empty-hint">戦法をここへドロップ</span>` : ""}
+      </div>
+    </div>
+    ${selected ? dndHandleHtml(`${member.generalName}をドラッグして移動`) : ""}
+  </div>`;
 }
 
 function consultationProposalFormationEditorHtml(formation, index) {
-  return `
-    <section class="card consultation-formation-editor">
-      <div class="consultation-formation-heading"><strong>提案 ${index + 1}部隊目</strong>${state.consultationDraft.formations.length > 1 ? `<button type="button" class="text-button danger-text" data-action="remove-consultation-formation" data-index="${index}">この部隊を削除</button>` : ""}</div>
-      <label class="field"><span>編成名</span><input maxlength="60" data-consultation-formation-path="name" data-index="${index}" value="${escapeAttr(formation.name)}" /></label>
-      <div class="two-col">
-        <label class="field"><span>兵種</span><select data-consultation-formation-path="troopType" data-index="${index}"><option value="">未設定</option>${[["infantry","足軽"],["siege","兵器"],["cavalry","馬"],["bow","弓"],["gun","鉄砲"]].map(([value,label]) => `<option value="${value}" ${formation.troopType === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-        <label class="field"><span>兵種Lv</span><select data-consultation-formation-path="troopLevel" data-index="${index}"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(formation.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
-      </div>
-      ${consultationGeneralBatchButtonHtml(index, formation)}
-      <div class="formation-dnd-help">武将・戦法は <strong>⋮⋮</strong> をドラッグして入れ替えできます。戦法は武将欄をタップして開き、別武将へ動かすときは両方を開いてください。</div>
-      ${formation.members.map((member) => consultationMemberEditorHtml(index, member)).join("")}
-      <label class="field"><span>部隊メモ（任意）</span><textarea maxlength="500" rows="2" data-consultation-formation-path="note" data-index="${index}">${escapeHtml(formation.note || "")}</textarea></label>
-    </section>`;
+  const members = [...(formation?.members ?? [])].sort((a,b)=>Number(a.slot)-Number(b.slot));
+  return `<section class="consultation-team-strip">
+    <div class="consultation-team-strip-head">
+      <strong>第${index + 1}部隊</strong>
+      ${state.consultationDraft.formations.length > 1 ? `<button type="button" class="text-button danger-text" data-action="remove-consultation-formation" data-index="${index}">削除</button>` : ""}
+    </div>
+    <div class="consultation-team-strip-body">
+      <div class="consultation-team-members">${members.map((member)=>consultationCompactMemberHtml(index, member)).join("")}</div>
+      <button type="button" class="consultation-team-select-button" data-action="open-consultation-picker" data-kind="general" data-formation-index="${index}" data-field="generals"><span>武将を選択</span><small>選択 ›</small></button>
+    </div>
+  </section>`;
+}
+
+function consultationTacticUsageCount(tacticId) {
+  if (!tacticId) return 0;
+  let count = 0;
+  for (const formation of state.consultationDraft?.formations ?? []) {
+    for (const member of formation.members ?? []) {
+      if (member.tactic1QookkaId === tacticId) count += 1;
+      if (member.tactic2QookkaId === tacticId) count += 1;
+    }
+  }
+  return count;
+}
+
+function consultationTacticPaletteItems() {
+  const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const query = normalizeSearchText(state.consultationTacticPaletteSearch || "");
+  const gradeFilters = state.consultationTacticPaletteGrades ?? ["S"];
+  const kindFilters = state.consultationTacticPaletteKinds ?? [];
+  return tactics.filter((tactic) => {
+    const grade = tacticGradeLabel(tactic);
+    const kind = consultationTacticKindLabel(tactic.kind);
+    if (gradeFilters.length && !gradeFilters.includes(grade)) return false;
+    if (kindFilters.length && !kindFilters.includes(kind)) return false;
+    if (query && !normalizeSearchText(tactic.name || "").includes(query)) return false;
+    return true;
+  }).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"ja"));
+}
+
+function consultationTacticPaletteListHtml() {
+  const items = consultationTacticPaletteItems();
+  if (!items.length) return `<div class="choice-empty">該当する戦法がありません</div>`;
+  return items.map((tactic) => {
+    const used = consultationTacticUsageCount(tactic.qookkaId);
+    const limit = maxTacticCopies(tactic);
+    const exhausted = used >= limit;
+    return `<div class="consultation-palette-tactic ${used ? "used" : ""} ${exhausted ? "exhausted" : ""}" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="pool" data-tactic-id="${escapeAttr(tactic.qookkaId)}" data-tactic-name="${escapeAttr(tactic.name)}" draggable="${exhausted ? "false" : "true"}">
+      <div><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${used ? " ・ 使用中" : ""}</small></div>
+      ${exhausted ? `<span class="consultation-palette-used-mark">使用中</span>` : dndHandleHtml(`${tactic.name}を武将へドラッグ`)}
+    </div>`;
+  }).join("");
+}
+
+function consultationTacticPaletteHtml() {
+  const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
+  const kinds = consultationTacticKindValues(tactics);
+  return `<aside class="card consultation-tactic-palette" id="consultation-tactic-palette">
+    <div class="consultation-tactic-palette-head"><div><strong>戦法パレット</strong><small>戦法を武将へドラッグ</small></div><span>${tactics.length}件</span></div>
+    <input id="consultation-tactic-palette-search" class="choice-search" type="search" placeholder="戦法名で検索" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" />
+    <div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
+    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
+    <div id="consultation-tactic-palette-list" class="consultation-tactic-palette-list">${consultationTacticPaletteListHtml()}</div>
+  </aside>`;
+}
+
+function refreshConsultationTacticPaletteList() {
+  const list = document.getElementById("consultation-tactic-palette-list");
+  if (list) list.innerHTML = consultationTacticPaletteListHtml();
 }
 
 function formationSupportResultText() {
@@ -4420,7 +4470,7 @@ function formationSupportResultText() {
   for (let index = 0; index < (draft.formations ?? []).length; index += 1) {
     const formation = draft.formations[index];
     lines.push("");
-    lines.push(`【${formation.name || `第${index + 1}軍`}】${observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) ? ` ${observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } })}` : ""}`);
+    lines.push(`【第${index + 1}部隊】`);
     for (const member of [...(formation.members ?? [])].sort((a,b)=>Number(a.slot)-Number(b.slot))) {
       if (!member.generalName) continue;
       const general = generalMap.get(member.generalQookkaId);
@@ -4437,6 +4487,7 @@ function renderFormationSupportDirectBody() {
   const consultation = state.sharedConsultation;
   if (!consultation) return;
   state.consultationDraft ??= newConsultationProposalDraft();
+  normalizeConsultationProposalDraftForBuilder();
   const draft = state.consultationDraft;
   const inventory = consultation.inventory ?? { generals: [], tactics: [], lastImport: null };
   const unknownStar5 = (inventory.generals ?? []).filter((row) => Number(row.star) === 5 && (row.dupeCount === null || row.dupeCount === undefined)).length;
@@ -4454,11 +4505,19 @@ function renderFormationSupportDirectBody() {
         <div class="notice info">下の所持武将で<strong>編成候補</strong>を付けた武将だけ、編成作成時の武将候補に表示します。</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span></div>
         ${consultationInventoryHtml()}
-        <div class="section-heading"><h2>編成案を作成</h2><span>1〜5部隊</span></div>
+        <div class="section-heading"><h2>武将を組む</h2><span>最大10部隊</span></div>
         <div class="form-stack">
           <div class="card form-stack"><label class="field"><span>編成案全体のメモ（任意）</span><textarea maxlength="1000" rows="3" data-consultation-path="note" placeholder="運用順、狙いなど">${escapeHtml(draft.note || "")}</textarea></label></div>
-          ${draft.formations.map(consultationProposalFormationEditorHtml).join("")}
-          <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 5 ? "disabled" : ""}>＋ 部隊を追加</button>
+          <div class="consultation-builder-layout">
+            <div class="consultation-builder-teams">
+              <div class="consultation-team-list">${draft.formations.map(consultationProposalFormationEditorHtml).join("")}</div>
+              <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 10 ? "disabled" : ""}>＋ 部隊を追加</button>
+            </div>
+            <div class="consultation-builder-tactics">
+              <div class="section-heading consultation-tactic-heading"><h2>戦法を割り当てる</h2><span>ドラッグ&ドロップ</span></div>
+              ${consultationTacticPaletteHtml()}
+            </div>
+          </div>
           <button type="button" class="primary-button" data-action="copy-formation-support-result">編成案をコピー</button>
         </div>
       </div>
@@ -4487,6 +4546,7 @@ function renderFormationConsultationBody() {
     return;
   }
   state.consultationDraft ??= newConsultationProposalDraft();
+  normalizeConsultationProposalDraftForBuilder();
   const draft = state.consultationDraft;
   const inventory = consultation.inventory ?? { generals: [], tactics: [], lastImport: null };
   app.innerHTML = pageHtml({
@@ -4495,17 +4555,25 @@ function renderFormationConsultationBody() {
     content: `
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
-        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。上の手持ち一覧は見やすさのため★5武将・S戦法だけを表示しています。</div>
+        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。所持武将一覧は★5を表示し、戦法は下の戦法パレットから割り当てます。</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
-        <div class="section-heading"><h2>編成案を作成</h2><span>1〜5部隊</span></div>
+        <div class="section-heading"><h2>武将を組む</h2><span>最大10部隊</span></div>
         <form class="form-stack" data-form="submit-formation-consultation-proposal">
           <div class="card form-stack">
             <label class="field"><span>提案者名</span><input name="proposerName" maxlength="40" required data-consultation-path="proposerName" value="${escapeAttr(draft.proposerName)}" placeholder="ゲーム内名など" /></label>
             <label class="field"><span>提案全体のメモ（任意）</span><textarea name="note" maxlength="1000" rows="3" data-consultation-path="note" placeholder="狙い、運用順、注意点など">${escapeHtml(draft.note)}</textarea></label>
           </div>
-          ${draft.formations.map(consultationProposalFormationEditorHtml).join("")}
-          <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 5 ? "disabled" : ""}>＋ 提案する部隊を追加</button>
+          <div class="consultation-builder-layout">
+            <div class="consultation-builder-teams">
+              <div class="consultation-team-list">${draft.formations.map(consultationProposalFormationEditorHtml).join("")}</div>
+              <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 10 ? "disabled" : ""}>＋ 部隊を追加</button>
+            </div>
+            <div class="consultation-builder-tactics">
+              <div class="section-heading consultation-tactic-heading"><h2>戦法を割り当てる</h2><span>ドラッグ&ドロップ</span></div>
+              ${consultationTacticPaletteHtml()}
+            </div>
+          </div>
           <button type="submit" class="primary-button">この編成案を送信</button>
         </form>
       </div>
@@ -4517,6 +4585,9 @@ function renderFormationConsultationBody() {
 
 async function renderFormationConsultation() {
   state.formationSupportMode = false;
+  state.consultationTacticPaletteSearch = "";
+  state.consultationTacticPaletteKinds = [];
+  state.consultationTacticPaletteGrades = ["S"];
   state.consultationExpandedTacticSlots = {};
   app.innerHTML = pageHtml({
     title: "編成相談",
@@ -5045,20 +5116,38 @@ let formationPointerDrag = null;
 
 function formationDndDescriptor(element) {
   if (!element) return null;
-  const type = element.dataset.dndType === "tactic" ? "tactic" : "general";
+  const rawType = element.dataset.dndType || element.dataset.dndDropType || "general";
+  const type = rawType === "tactic" ? "tactic" : "general";
   return {
     context: element.dataset.dndContext === "consultation" ? "consultation" : "my",
     type,
+    sourceKind: element.dataset.dndSourceKind || "",
+    targetKind: element.dataset.dndTargetKind || "",
     formationIndex: element.dataset.formationIndex === undefined ? null : Number(element.dataset.formationIndex),
-    slot: Number(element.dataset.slot),
-    field: type === "tactic" ? (element.dataset.field === "tactic2" ? "tactic2" : "tactic1") : null,
+    slot: element.dataset.slot === undefined ? null : Number(element.dataset.slot),
+    field: type === "tactic" && element.dataset.field ? (element.dataset.field === "tactic2" ? "tactic2" : "tactic1") : null,
+    tacticId: element.dataset.tacticId || "",
+    tacticName: element.dataset.tacticName || "",
   };
 }
 
 function formationDndCompatible(source, target) {
   if (!source || !target) return false;
   if (source.context !== target.context || source.type !== target.type) return false;
-  if (source.context === "consultation" && Number(source.formationIndex) !== Number(target.formationIndex)) return false;
+  if (source.context === "consultation") {
+    if (source.type === "general") {
+      if (!Number.isFinite(source.formationIndex) || !Number.isFinite(target.formationIndex)) return false;
+      return Number(source.formationIndex) !== Number(target.formationIndex) || Number(source.slot) !== Number(target.slot);
+    }
+    if (source.sourceKind === "pool") return ["member","slot"].includes(target.targetKind) && Number.isFinite(target.formationIndex) && Number.isFinite(target.slot);
+    if (target.targetKind === "slot") {
+      return Number(source.formationIndex) !== Number(target.formationIndex) || Number(source.slot) !== Number(target.slot) || source.field !== target.field;
+    }
+    if (target.targetKind === "member") {
+      return Number(source.formationIndex) !== Number(target.formationIndex) || Number(source.slot) !== Number(target.slot);
+    }
+    return false;
+  }
   if (source.type === "general") return Number(source.slot) !== Number(target.slot);
   return Number(source.slot) !== Number(target.slot) || source.field !== target.field;
 }
@@ -5075,6 +5164,90 @@ function formationDndTargetAt(x, y, source) {
   return formationDndCompatible(source, target) ? { node, target } : null;
 }
 
+function consultationMemberAt(descriptor) {
+  if (!descriptor || !Number.isFinite(descriptor.formationIndex) || !Number.isFinite(descriptor.slot)) return null;
+  const formation = state.consultationDraft?.formations?.[Number(descriptor.formationIndex)];
+  const member = formation?.members?.find((row) => Number(row.slot) === Number(descriptor.slot));
+  return formation && member ? { formation, member } : null;
+}
+
+function emptyConsultationMember(slot) {
+  return { slot:Number(slot), generalQookkaId:"", generalName:"", tactic1QookkaId:"", tactic1Name:"", tactic2QookkaId:"", tactic2Name:"" };
+}
+
+function swapConsultationGeneralCells(source, target) {
+  const a = consultationMemberAt(source);
+  const b = consultationMemberAt(target);
+  if (!a || !b) return false;
+  const aPayload = { ...a.member, slot:Number(target.slot) };
+  const bPayload = { ...b.member, slot:Number(source.slot) };
+  const aIndex = a.formation.members.findIndex((row)=>Number(row.slot)===Number(source.slot));
+  const bIndex = b.formation.members.findIndex((row)=>Number(row.slot)===Number(target.slot));
+  if (aIndex < 0 || bIndex < 0) return false;
+  a.formation.members[aIndex] = bPayload;
+  b.formation.members[bIndex] = aPayload;
+  a.formation.members.sort((x,y)=>Number(x.slot)-Number(y.slot));
+  b.formation.members.sort((x,y)=>Number(x.slot)-Number(y.slot));
+  return true;
+}
+
+function assignConsultationPaletteTactic(source, target) {
+  const targetEntry = consultationMemberAt(target);
+  if (!targetEntry?.member?.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return false; }
+  const tactic = (state.sharedConsultation?.inventory?.tactics ?? []).find((row)=>row.qookkaId === source.tacticId);
+  if (!tactic) return false;
+  if (targetEntry.member.tactic1QookkaId === tactic.qookkaId || targetEntry.member.tactic2QookkaId === tactic.qookkaId) {
+    showToast("この武将にはすでに設定されています。", "error"); return false;
+  }
+  if (consultationTacticUsageCount(tactic.qookkaId) >= maxTacticCopies(tactic)) {
+    showToast("この戦法はすでに使用されています。", "error"); return false;
+  }
+  const field = target.targetKind === "slot" && target.field
+    ? target.field
+    : (!targetEntry.member.tactic1QookkaId ? "tactic1" : !targetEntry.member.tactic2QookkaId ? "tactic2" : "");
+  if (!field) { showToast("この武将には戦法が2つ設定済みです。外す戦法へ直接ドロップすると置き換えできます。", "error"); return false; }
+  targetEntry.member[`${field}QookkaId`] = tactic.qookkaId;
+  targetEntry.member[`${field}Name`] = tactic.name;
+  return true;
+}
+
+function swapConsultationTacticCells(source, target) {
+  const from = consultationMemberAt(source);
+  const to = consultationMemberAt(target);
+  if (!from || !to || !source.field || !target.field) return false;
+  const fromId = `${source.field}QookkaId`;
+  const fromName = `${source.field}Name`;
+  const toId = `${target.field}QookkaId`;
+  const toName = `${target.field}Name`;
+  const id = from.member[fromId] || "";
+  const name = from.member[fromName] || "";
+  from.member[fromId] = to.member[toId] || "";
+  from.member[fromName] = to.member[toName] || "";
+  to.member[toId] = id;
+  to.member[toName] = name;
+  return true;
+}
+
+function moveConsultationAssignedTactic(source, target) {
+  const from = consultationMemberAt(source);
+  const to = consultationMemberAt(target);
+  if (!from || !to || !source.field) return false;
+  if (!to.member.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return false; }
+  const idKey = `${source.field}QookkaId`;
+  const nameKey = `${source.field}Name`;
+  const tacticId = from.member[idKey] || "";
+  const tacticName = from.member[nameKey] || "";
+  if (!tacticId) return false;
+  if (to.member.tactic1QookkaId === tacticId || to.member.tactic2QookkaId === tacticId) return false;
+  const targetField = !to.member.tactic1QookkaId ? "tactic1" : !to.member.tactic2QookkaId ? "tactic2" : "";
+  if (!targetField) { showToast("移動先の武将には戦法が2つ設定済みです。", "error"); return false; }
+  from.member[idKey] = "";
+  from.member[nameKey] = "";
+  to.member[`${targetField}QookkaId`] = tacticId;
+  to.member[`${targetField}Name`] = tacticName;
+  return true;
+}
+
 function performFormationDndSwap(source, target) {
   if (!formationDndCompatible(source, target)) return false;
   if (source.context === "my") {
@@ -5085,10 +5258,12 @@ function performFormationDndSwap(source, target) {
     renderFormationEditor();
     return true;
   }
-  const formation = state.consultationDraft?.formations?.[Number(source.formationIndex)];
-  if (!formation) return false;
-  if (source.type === "general") swapMemberSlots(formation.members, source.slot, target.slot);
-  else swapTacticSlots(formation.members, source, target);
+  let changed = false;
+  if (source.type === "general") changed = swapConsultationGeneralCells(source, target);
+  else if (source.sourceKind === "pool") changed = assignConsultationPaletteTactic(source, target);
+  else if (target.targetKind === "slot") changed = swapConsultationTacticCells(source, target);
+  else changed = moveConsultationAssignedTactic(source, target);
+  if (!changed) return false;
   if (state.formationSupportMode) persistFormationSupportLocal();
   renderFormationConsultationBody();
   return true;
@@ -5214,6 +5389,11 @@ document.addEventListener("input", (event) => {
     }
     return;
   }
+  if (target.id === "consultation-tactic-palette-search") {
+    state.consultationTacticPaletteSearch = target.value;
+    if (!event.isComposing && target.dataset.composing !== "true") refreshConsultationTacticPaletteList();
+    return;
+  }
   const consultationPath = target.dataset?.consultationPath;
   if (consultationPath && state.consultationDraft) {
     state.consultationDraft[consultationPath] = target.value;
@@ -5292,20 +5472,25 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("compositionstart", (event) => {
   const target = event.target;
-  if (["master-search", "enemy-player-search", "enemy-group-search", "enemy-formation-search", "inventory-search", "formation-picker-search", "consultation-picker-search"].includes(target?.id)) {
+  if (["master-search", "enemy-player-search", "enemy-group-search", "enemy-formation-search", "inventory-search", "formation-picker-search", "consultation-picker-search", "consultation-tactic-palette-search"].includes(target?.id)) {
     target.dataset.composing = "true";
   }
 });
 
 document.addEventListener("compositionend", (event) => {
   const target = event.target;
-  if (!["master-search", "enemy-player-search", "enemy-group-search", "enemy-formation-search", "inventory-search", "formation-picker-search", "consultation-picker-search"].includes(target?.id)) return;
+  if (!["master-search", "enemy-player-search", "enemy-group-search", "enemy-formation-search", "inventory-search", "formation-picker-search", "consultation-picker-search", "consultation-tactic-palette-search"].includes(target?.id)) return;
   delete target.dataset.composing;
   if (target.id === "consultation-picker-search") {
     if (state.consultationPicker) {
       state.consultationPicker.query = target.value;
       refreshConsultationPickerOptions();
     }
+    return;
+  }
+  if (target.id === "consultation-tactic-palette-search") {
+    state.consultationTacticPaletteSearch = target.value;
+    refreshConsultationTacticPaletteList();
     return;
   }
   if (target.id === "master-search") {
@@ -5465,6 +5650,9 @@ document.addEventListener("submit", async (event) => {
       };
       state.consultationDraft = newConsultationProposalDraft();
       state.consultationPicker = null;
+      state.consultationTacticPaletteSearch = "";
+      state.consultationTacticPaletteKinds = [];
+      state.consultationTacticPaletteGrades = ["S"];
       state.consultationSwap = null;
       state.consultationExpandedTacticSlots = {};
       state.consultationSubmitted = false;
@@ -5751,6 +5939,32 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "formation-dnd-handle") return;
 
+  if (action === "toggle-consultation-palette-grade") {
+    const grade = String(button.dataset.grade || "all");
+    state.consultationTacticPaletteGrades = grade === "all" ? [] : [grade];
+    refreshTacticGradeFilterButtons("toggle-consultation-palette-grade", state.consultationTacticPaletteGrades);
+    refreshConsultationTacticPaletteList();
+    return;
+  }
+  if (action === "toggle-consultation-palette-kind") {
+    const kind = String(button.dataset.kind || "all");
+    state.consultationTacticPaletteKinds = kind === "all" ? [] : [kind];
+    refreshTacticKindFilterButtons("toggle-consultation-palette-kind", state.consultationTacticPaletteKinds);
+    refreshConsultationTacticPaletteList();
+    return;
+  }
+  if (action === "remove-consultation-tactic") {
+    const entry = consultationMemberAt({ formationIndex:Number(button.dataset.formationIndex), slot:Number(button.dataset.slot) });
+    const field = button.dataset.field === "tactic2" ? "tactic2" : "tactic1";
+    if (entry?.member) {
+      entry.member[`${field}QookkaId`] = "";
+      entry.member[`${field}Name`] = "";
+      if (state.formationSupportMode) persistFormationSupportLocal();
+      renderFormationConsultationBody();
+    }
+    return;
+  }
+
   if (action === "toggle-formation-tactic-grade") {
     if (state.formationPicker?.kind !== "tactic") return;
     const grade = String(button.dataset.grade || "all");
@@ -5998,16 +6212,20 @@ document.addEventListener("click", async (event) => {
     renderFormationConsultationBody();
   }
   if (action === "add-consultation-formation") {
-    if (!state.consultationDraft || state.consultationDraft.formations.length >= 5) return;
+    if (!state.consultationDraft || state.consultationDraft.formations.length >= 10) return;
     state.consultationDraft.formations.push(newConsultationProposalFormation(state.consultationDraft.formations.length));
+    normalizeConsultationProposalDraftForBuilder();
+    if (state.formationSupportMode) persistFormationSupportLocal();
     renderFormationConsultationBody();
   }
   if (action === "remove-consultation-formation") {
     if (!state.consultationDraft || state.consultationDraft.formations.length <= 1) return;
     state.consultationDraft.formations.splice(Number(button.dataset.index), 1);
+    normalizeConsultationProposalDraftForBuilder();
     state.consultationPicker = null;
     state.consultationSwap = null;
     state.consultationExpandedTacticSlots = {};
+    if (state.formationSupportMode) persistFormationSupportLocal();
     renderFormationConsultationBody();
   }
   if (action === "open-consultation-picker") {
@@ -6081,6 +6299,7 @@ document.addEventListener("click", async (event) => {
       member.tactic2QookkaId = ids[1] || ""; member.tactic2Name = second?.name || "";
     }
     state.consultationPicker = null;
+    if (state.formationSupportMode) persistFormationSupportLocal();
     renderFormationConsultationBody();
   }
   if (action === "start-consultation-swap") {
