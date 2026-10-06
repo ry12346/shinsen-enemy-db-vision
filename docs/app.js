@@ -1,4 +1,4 @@
-const APP_VERSION = "1.9.4";
+const APP_VERSION = "2.0.0";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
@@ -64,13 +64,20 @@ const state = {
   myFormations: [],
   myFormationShareSets: [],
   formationShareSelection: [],
+  formationShareTitle: "",
   inventorySearch: "",
   inventoryFilters: { star: "5", faction: "all", cost: "all" },
   formationDraft: null,
   formationPicker: null,
   formationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
-  formationTacticPickerKind: "all",
+  formationTacticPickerKinds: [],
+  formationTacticPickerGrades: ["S"],
   formationSwap: null,
+  formationDraftRemote: null,
+  formationDraftSaveTimer: null,
+  formationDraftStatus: "",
+  formationCopyMissing: null,
+  formationReorderBusy: false,
   sharedFormation: null,
   shareToken: "",
   sharedFormationSet: null,
@@ -86,7 +93,8 @@ const state = {
   consultationInventorySearch: "",
   consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
   consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
-  consultationTacticPickerKind: "all",
+  consultationTacticPickerKinds: [],
+  consultationTacticPickerGrades: ["S"],
   consultationSwap: null,
 };
 
@@ -3024,6 +3032,7 @@ function newFormationDraft() {
     troopType: "",
     troopLevel: "",
     note: "",
+    tags: [],
     isShared: false,
     shareToken: null,
     members: [1, 2, 3].map((slot) => ({
@@ -3050,6 +3059,7 @@ function cloneFormationForEdit(formation) {
   draft.troopType = formation.troopType || "";
   draft.troopLevel = formation.troopLevel ?? "";
   draft.note = formation.note || "";
+  draft.tags = Array.isArray(formation.tags) ? [...formation.tags] : [];
   draft.isShared = Boolean(formation.isShared);
   draft.shareToken = formation.shareToken || null;
   for (const member of formation.members ?? []) {
@@ -3069,16 +3079,18 @@ function cloneFormationForEdit(formation) {
 
 async function loadMyFormationData({ force = false } = {}) {
   if (!force && state.myInventory && Array.isArray(state.myFormations) && Array.isArray(state.myFormationShareSets) && Array.isArray(state.myFormationConsultations)) return;
-  const [inventoryResponse, formationsResponse, shareSetsResponse, consultationsResponse] = await Promise.all([
+  const [inventoryResponse, formationsResponse, shareSetsResponse, consultationsResponse, draftResponse] = await Promise.all([
     apiRequest("my_inventory"),
     apiRequest("my_formations"),
     apiRequest("my_formation_share_sets"),
     apiRequest("my_formation_consultations"),
+    apiRequest("my_formation_draft_get").catch(() => ({ draft: null })),
   ]);
   state.myInventory = inventoryResponse.inventory ?? { generals: [], tactics: [], lastImport: null };
   state.myFormations = formationsResponse.formations ?? [];
   state.myFormationShareSets = shareSetsResponse.shareSets ?? [];
   state.myFormationConsultations = consultationsResponse.consultations ?? [];
+  state.formationDraftRemote = draftResponse.draft ?? null;
 }
 
 function qookkaSyncCard() {
@@ -3142,49 +3154,61 @@ async function renderMyFormations() {
   }
 }
 
+function formationTagsHtml(formation) {
+  const tags = Array.isArray(formation?.tags) ? formation.tags : [];
+  return tags.length ? `<div class="formation-tag-list">${tags.map((tag) => `<span class="tag-chip static">${escapeHtml(tag)}</span>`).join("")}</div>` : "";
+}
+
+function formationHistoryHtml(formation) {
+  const history = formation?.history ?? [];
+  if (!history.length) return "";
+  return `<details class="formation-history"><summary>変更履歴 ${history.length}</summary><div class="formation-history-list">
+    ${history.map((item, index) => `<div class="formation-history-row"><div><strong>${index === 0 ? "1つ前" : `${index + 1}つ前`}</strong><small>${escapeHtml(formatDateTime(item.createdAt))}</small></div><button type="button" class="secondary-button compact-button" data-action="restore-formation-history" data-id="${escapeAttr(item.id)}">この状態に戻す</button></div>`).join("")}
+  </div></details>`;
+}
+
 function renderMyFormationsBody() {
   const inventory = state.myInventory ?? { generals: [], tactics: [] };
   const hasInventory = (inventory.generals?.length ?? 0) > 0 || (inventory.tactics?.length ?? 0) > 0;
   const shareSets = state.myFormationShareSets ?? [];
   const shareSetFormationIds = new Set(shareSets.flatMap((set) => set.formationIds ?? []));
+  const singleShared = state.myFormations.filter((formation) => formation.isShared);
+  const draftData = state.formationDraftRemote?.payload;
+  const hasDraft = draftData && typeof draftData === "object" && ((draftData.name || "").trim() || (draftData.note || "").trim() || draftData.troopType || (draftData.tags ?? []).length || (draftData.members ?? []).some((row) => row.generalQookkaId || row.tactic1QookkaId || row.tactic2QookkaId));
   const formationCards = state.myFormations.length
-    ? state.myFormations.map((formation) => `
+    ? state.myFormations.map((formation, index) => `
       <article class="card formation-card">
         <div class="formation-card-head">
           <div>
             <div class="formation-title-row">
               <h2>${escapeHtml(formation.name || "名称未設定の編成")}</h2>
-              <span class="privacy-badge ${(formation.isShared || shareSetFormationIds.has(formation.id)) ? "shared" : "private"}">${formation.isShared ? "単体共有中" : (shareSetFormationIds.has(formation.id) ? "まとめ共有中" : "非公開")}</span>
+              <span class="privacy-badge ${(formation.isShared || shareSetFormationIds.has(formation.id)) ? "shared" : "private"}">${formation.isShared ? "共有中" : (shareSetFormationIds.has(formation.id) ? "まとめ共有中" : "非公開")}</span>
             </div>
             <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}${formation.updatedAt ? ` ・ 更新 ${escapeHtml(formatDateTime(formation.updatedAt))}` : ""}</small>
           </div>
+          <div class="formation-order-actions" aria-label="並び替え">
+            <button type="button" class="icon-button" data-action="move-formation" data-id="${escapeAttr(formation.id)}" data-direction="up" ${index === 0 ? "disabled" : ""} aria-label="上へ">↑</button>
+            <button type="button" class="icon-button" data-action="move-formation" data-id="${escapeAttr(formation.id)}" data-direction="down" ${index === state.myFormations.length - 1 ? "disabled" : ""} aria-label="下へ">↓</button>
+          </div>
         </div>
+        ${formationTagsHtml(formation)}
         <div class="formation-summary">${formationSummaryMembers(formation)}</div>
         ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
-        <button type="button" class="primary-button formation-edit-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編成を編集</button>
-        <div class="button-row formation-share-actions">
-          ${formation.isShared
-            ? `<button type="button" class="secondary-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">単体共有URLをコピー</button>
-               <button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">単体共有を解除</button>`
-            : `<button type="button" class="secondary-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">この編成だけ共有</button>`}
+        <div class="formation-card-primary-row">
+          <button type="button" class="primary-button formation-edit-button" data-action="edit-my-formation" data-id="${escapeAttr(formation.id)}">編成を編集</button>
+          ${!formation.isShared ? `<button type="button" class="secondary-button compact-button" data-action="share-my-formation" data-id="${escapeAttr(formation.id)}">共有</button>` : ""}
         </div>
+        ${formationHistoryHtml(formation)}
       </article>`).join("")
     : `<div class="card empty-state"><strong>まだ編成がありません</strong><p class="muted">「編成を登録」から最初の編成を作成できます。</p></div>`;
 
   const consultationHtml = consultationManagementHtml();
-
-  const shareSetHtml = shareSets.length ? `
+  const shareManagementHtml = (singleShared.length || shareSets.length) ? `
     <details class="card share-set-management">
-      <summary><strong>まとめ共有リンク ${shareSets.length}件</strong><span>管理</span></summary>
+      <summary><strong>共有リンク管理</strong><span>${singleShared.length + shareSets.length}件</span></summary>
       <div class="share-set-management-list">
-        ${shareSets.map((set) => `
-          <div class="share-set-management-row">
-            <div><strong>${escapeHtml(set.title || `編成共有 ${Number(set.formationCount || 0)}部隊`)}</strong><small>${(set.formationNames ?? []).map(escapeHtml).join(" / ")}${set.createdAt ? ` ・ ${escapeHtml(formatDateTime(set.createdAt))}` : ""}</small></div>
-            <div class="button-row">
-              <button type="button" class="secondary-button compact-button" data-action="copy-formation-share-set" data-token="${escapeAttr(set.shareToken || "")}">URLコピー</button>
-              <button type="button" class="text-button danger-text" data-action="revoke-formation-share-set" data-id="${escapeAttr(set.id)}">解除</button>
-            </div>
-          </div>`).join("")}
+        ${singleShared.map((formation) => `<div class="share-set-management-row"><div><strong>${escapeHtml(formation.name || "名称未設定")}</strong><small>単体共有</small></div><div class="button-row"><button type="button" class="secondary-button compact-button" data-action="copy-formation-link" data-id="${escapeAttr(formation.id)}">URLコピー</button><button type="button" class="secondary-button compact-button" data-action="regenerate-formation-link" data-id="${escapeAttr(formation.id)}">再発行</button><button type="button" class="text-button danger-text" data-action="unshare-my-formation" data-id="${escapeAttr(formation.id)}">解除</button></div></div>`).join("")}
+        ${shareSets.map((set) => `<div class="share-set-management-row"><div><strong>${escapeHtml(set.title || `編成共有 ${Number(set.formationCount || 0)}部隊`)}</strong><small>${(set.formationNames ?? []).map(escapeHtml).join(" / ")}</small></div><div class="button-row"><button type="button" class="secondary-button compact-button" data-action="rename-formation-share-set" data-id="${escapeAttr(set.id)}" data-title="${escapeAttr(set.title || "")}">名前変更</button><button type="button" class="secondary-button compact-button" data-action="copy-formation-share-set" data-token="${escapeAttr(set.shareToken || "")}">URLコピー</button><button type="button" class="secondary-button compact-button" data-action="regenerate-formation-share-set" data-id="${escapeAttr(set.id)}">再発行</button><button type="button" class="text-button danger-text" data-action="revoke-formation-share-set" data-id="${escapeAttr(set.id)}">解除</button></div></div>`).join("")}
       </div>
     </details>` : "";
 
@@ -3198,9 +3222,10 @@ function renderMyFormationsBody() {
           <button type="button" class="secondary-button create-formation-button" data-action="begin-share-formations" ${state.myFormations.length ? "" : "disabled"}>複数編成をまとめて共有</button>
           <button type="button" class="secondary-button create-formation-button consultation-create-button" data-action="new-formation-consultation" ${hasInventory ? "" : "disabled"}>編成相談を作成</button>
         </div>
+        ${hasDraft ? `<div class="card draft-resume-card"><div><strong>編集中の下書きがあります</strong><small>${state.formationDraftRemote?.updatedAt ? `自動保存 ${escapeHtml(formatDateTime(state.formationDraftRemote.updatedAt))}` : ""}</small></div><div class="button-row"><button type="button" class="primary-button compact-button" data-action="resume-formation-draft">続きから編集</button><button type="button" class="text-button" data-action="discard-formation-draft">破棄</button></div></div>` : ""}
         ${!hasInventory ? `<div class="notice warning">編成登録・編成相談の前に所持情報が必要です。<button type="button" class="inline-link-button" data-action="navigate" data-view="inventory">所持情報を登録する</button></div>` : ""}
         ${consultationHtml}
-        ${shareSetHtml}
+        ${shareManagementHtml}
         <div class="section-heading"><h2>保存した編成</h2><span>${state.myFormations.length}件</span></div>
         ${formationCards}
       </div>`,
@@ -3229,6 +3254,7 @@ function renderFormationShareSelector() {
       <div class="page-content formation-share-select-page">
         <div class="notice info">選択した編成だけが1つの共有URLに表示されます。所持武将・所持戦法や、選択していない編成は公開されません。</div>
         <div class="share-selection-status"><strong>${selected.size}編成を選択中</strong><button type="button" class="text-button" data-action="clear-formation-share-selection">選択解除</button></div>
+        <label class="field"><span>共有セット名</span><input id="formation-share-title" maxlength="80" placeholder="例：PK2 主力3軍" value="${escapeAttr(state.formationShareTitle || "")}" /></label>
         <div class="share-select-list">${cards || `<div class="card empty-state">共有できる編成がありません。</div>`}</div>
         <button type="button" class="primary-button" style="width:100%" data-action="create-formation-share-set" ${selected.size ? "" : "disabled"}>選択した${selected.size}編成の共有URLを作成</button>
         <button type="button" class="secondary-button" style="width:100%" data-action="cancel-formation-share-selection">戻る</button>
@@ -3336,6 +3362,97 @@ function maxTacticCopies(tactic) {
   return FORMATION_TACTIC_COPY_LIMITS[String(tactic?.name || "").trim()] ?? 1;
 }
 
+function tacticGradeLabel(tactic) {
+  const grade = Number(tactic?.grade);
+  if (grade === 5) return "S";
+  if (grade === 4) return "A";
+  return "";
+}
+
+function tacticGradeFilterButtonsHtml(selectedGrades, action) {
+  const selected = new Set(selectedGrades ?? []);
+  const all = selected.size === 0;
+  return `<div class="tactic-kind-filter tactic-grade-filter" role="group" aria-label="戦法ランク">
+    <button type="button" class="tactic-kind-chip ${all ? "selected" : ""}" data-action="${escapeAttr(action)}" data-grade="all" aria-pressed="${all ? "true" : "false"}">すべて</button>
+    ${["S","A"].map((grade) => `<button type="button" class="tactic-kind-chip ${selected.has(grade) ? "selected" : ""}" data-action="${escapeAttr(action)}" data-grade="${grade}" aria-pressed="${selected.has(grade) ? "true" : "false"}">${grade}</button>`).join("")}
+  </div>`;
+}
+
+function formationHasTag(formation, tag) {
+  return Array.isArray(formation?.tags) && formation.tags.includes(tag);
+}
+
+function formationUsageMaps(excludeFormationId = "") {
+  const general = new Map();
+  const tactic = new Map();
+  for (const formation of state.myFormations ?? []) {
+    if (excludeFormationId && String(formation.id) === String(excludeFormationId)) continue;
+    for (const member of formation.members ?? []) {
+      if (member.generalQookkaId) {
+        const list = general.get(member.generalQookkaId) ?? [];
+        const formationName = formation.name || "名称未設定";
+        if (!list.includes(formationName)) list.push(formationName);
+        general.set(member.generalQookkaId, list);
+      }
+      if (formationHasTag(formation, "スタダ")) continue;
+      for (const id of [member.tactic1QookkaId, member.tactic2QookkaId]) {
+        if (!id) continue;
+        const list = tactic.get(id) ?? [];
+        const formationName = formation.name || "名称未設定";
+        if (!list.includes(formationName)) list.push(formationName);
+        tactic.set(id, list);
+      }
+    }
+  }
+  return { general, tactic };
+}
+
+function syncFormationDraftFromEditor() {
+  if (!state.formationDraft) return;
+  const form = document.querySelector('[data-form="save-my-formation"]');
+  if (!form) return;
+  const fd = new FormData(form);
+  state.formationDraft.name = String(fd.get("name") ?? "").trim();
+  state.formationDraft.note = String(fd.get("note") ?? "").trim();
+  state.formationDraft.troopType = String(fd.get("troopType") ?? "");
+  state.formationDraft.troopLevel = fd.get("troopLevel") ? Number(fd.get("troopLevel")) : null;
+}
+
+function scheduleFormationDraftSave() {
+  if (!state.formationDraft) return;
+  syncFormationDraftFromEditor();
+  if (state.formationDraftSaveTimer) window.clearTimeout(state.formationDraftSaveTimer);
+  state.formationDraftStatus = "保存中";
+  const payload = structuredClone(state.formationDraft);
+  state.formationDraftSaveTimer = window.setTimeout(async () => {
+    try {
+      await apiRequest("my_formation_draft_save", { draft: payload });
+      state.formationDraftRemote = { payload, updatedAt: new Date().toISOString() };
+      state.formationDraftStatus = "自動保存済み";
+      const badge = document.getElementById("formation-draft-status");
+      if (badge) badge.textContent = state.formationDraftStatus;
+    } catch (error) {
+      state.formationDraftStatus = "下書き保存に失敗";
+      const badge = document.getElementById("formation-draft-status");
+      if (badge) badge.textContent = state.formationDraftStatus;
+    }
+  }, 500);
+}
+
+function favoriteFirst(items) {
+  return [...(items ?? [])].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+}
+
+function formationTagEditorHtml(draft) {
+  const suggestions = ["主力", "スタダ", "対計略", "対兵刃", "攻城", "試作"];
+  const selected = new Set(draft.tags ?? []);
+  const custom = [...selected].filter((tag) => !suggestions.includes(tag));
+  return `<div class="card formation-tag-card"><div class="field"><span>タグ</span><div class="tag-chip-list">
+    ${suggestions.map((tag) => `<button type="button" class="tag-chip ${selected.has(tag) ? "selected" : ""}" data-action="toggle-formation-tag" data-tag="${escapeAttr(tag)}" aria-pressed="${selected.has(tag) ? "true" : "false"}">${escapeHtml(tag)}</button>`).join("")}
+    ${custom.map((tag) => `<button type="button" class="tag-chip selected" data-action="toggle-formation-tag" data-tag="${escapeAttr(tag)}" aria-pressed="true">${escapeHtml(tag)}</button>`).join("")}
+  </div><div class="tag-add-row"><input id="formation-custom-tag" maxlength="20" placeholder="タグを追加" /><button type="button" class="secondary-button compact-button" data-action="add-formation-tag">追加</button></div></div></div>`;
+}
+
 function currentPickerOptions() {
   const picker = state.formationPicker;
   if (!picker || !state.myInventory) return [];
@@ -3344,6 +3461,8 @@ function currentPickerOptions() {
   const selectedIds = picker.selectedIds ?? [];
   const selectedSet = new Set(selectedIds);
   const tacticUseCounts = new Map();
+  const usage = formationUsageMaps(state.formationDraft?.id || "");
+  const startupDraft = formationHasTag(state.formationDraft, "スタダ");
 
   if (picker.kind === "tactic") {
     for (const row of state.formationDraft?.members ?? []) {
@@ -3355,22 +3474,28 @@ function currentPickerOptions() {
     }
   }
 
-  return source
+  const filtered = source
     .filter((item) => {
       if (picker.kind === "general") return true;
       if (selectedSet.has(item.qookkaId)) return true;
-      return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
+      const localCount = tacticUseCounts.get(item.qookkaId) || 0;
+      return localCount < maxTacticCopies(item);
     })
     .filter((item) => {
+      if (selectedSet.has(item.qookkaId)) return true;
       if (picker.kind !== "general") {
         const matchesQuery = !query || normalizeSearchText(item.name).includes(query);
-        const kindFilter = picker.kindFilter || state.formationTacticPickerKind || "all";
-        return matchesQuery && (kindFilter === "all" || consultationTacticKindLabel(item.kind) === kindFilter);
+        const kindFilters = picker.kindFilters ?? state.formationTacticPickerKinds ?? [];
+        const gradeFilters = picker.gradeFilters ?? state.formationTacticPickerGrades ?? ["S"];
+        const kindOk = !kindFilters.length || kindFilters.includes(consultationTacticKindLabel(item.kind));
+        const gradeLabel = tacticGradeLabel(item);
+        const gradeOk = !gradeFilters.length || !gradeLabel || gradeFilters.includes(gradeLabel);
+        return matchesQuery && kindOk && gradeOk;
       }
       const filters = picker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
       return generalMatchesFilter(item, picker.query || "", filters);
-    })
-    .slice(0, 100);
+    });
+  return favoriteFirst(filtered).slice(0, 100);
 }
 
 function formationPickerSelectionLabel(picker, itemId) {
@@ -3385,15 +3510,24 @@ function formationPickerListHtml() {
   if (!picker) return "";
   const options = currentPickerOptions();
   const selectedIds = picker.selectedIds ?? [];
+  const usage = formationUsageMaps(state.formationDraft?.id || "");
   return options.length
     ? options.map((item) => {
       const selectionLabel = formationPickerSelectionLabel(picker, item.qookkaId);
       const selected = selectedIds.includes(item.qookkaId);
-      return `
-      <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}">
-        <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
-        ${picker.kind === "general" ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>` : ""}
-      </button>`;
+      const usedIn = picker.kind === "general" ? (usage.general.get(item.qookkaId) ?? []) : (usage.tactic.get(item.qookkaId) ?? []);
+      const usageText = usedIn.length ? `使用中：${usedIn.slice(0, 2).join(" / ")}${usedIn.length > 2 ? ` ほか${usedIn.length - 2}` : ""}` : "";
+      const startupDraft = formationHasTag(state.formationDraft, "スタダ");
+      const blockedByUsage = picker.kind === "tactic" && !selected && !startupDraft && usedIn.length >= maxTacticCopies(item);
+      return `<div class="choice-option-row ${selected ? "selected" : ""} ${blockedByUsage ? "usage-blocked" : ""}">
+        <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}" ${blockedByUsage ? "disabled" : ""}>
+          <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
+          ${picker.kind === "general"
+            ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${usageText ? ` ・ ${escapeHtml(usageText)}` : ""}</span>`
+            : `<span>${escapeHtml(tacticGradeLabel(item) || "ランク未確認")} ・ ${escapeHtml(consultationTacticKindLabel(item.kind))}${usageText ? ` ・ ${escapeHtml(usageText)}` : ""}</span>`}
+        </button>
+        <button type="button" class="favorite-toggle ${item.favorite ? "selected" : ""}" data-action="toggle-formation-favorite" data-kind="${picker.kind}" data-id="${escapeAttr(item.qookkaId)}" aria-label="${item.favorite ? "お気に入り解除" : "お気に入り登録"}" aria-pressed="${item.favorite ? "true" : "false"}">★</button>
+      </div>`;
     }).join("")
     : `<div class="choice-empty">候補がありません</div>`;
 }
@@ -3435,10 +3569,10 @@ function formationPickerFiltersHtml() {
       </div>`;
   }
   const kinds = consultationTacticKindValues(state.myInventory?.tactics ?? []);
-  const selected = picker.kindFilter || state.formationTacticPickerKind || "all";
-  return `<div class="picker-filter-grid consultation-tactic-filter-grid">
-    <select id="formation-picker-kind" aria-label="戦法種別"><option value="all">全種別</option>${kinds.map((kind) => `<option value="${escapeAttr(kind)}" ${selected === kind ? "selected" : ""}>${escapeHtml(kind)}</option>`).join("")}</select>
-  </div>`;
+  const selectedKinds = picker.kindFilters ?? state.formationTacticPickerKinds ?? [];
+  const selectedGrades = picker.gradeFilters ?? state.formationTacticPickerGrades ?? ["S"];
+  return `<div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(selectedGrades, "toggle-formation-tactic-grade")}</div>
+    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-formation-tactic-kind", "戦法種別")}</div>`;
 }
 
 function formationPickerHtml() {
@@ -3685,6 +3819,19 @@ function consultationProposalHtml(proposal) {
     </article>`;
 }
 
+function consultationCompareCell(formation) {
+  if (!formation) return `<span class="muted">—</span>`;
+  const enriched = enrichConsultationProposalFormation(formation);
+  const members = [...(enriched.members ?? [])].sort((a,b)=>Number(a.slot)-Number(b.slot));
+  return `<div class="proposal-compare-cell"><strong>${escapeHtml(formation.name || "編成")}</strong>${members.map((m) => `<div><b>${escapeHtml(formationMemberRole(Number(m.slot)))}</b> ${escapeHtml(m.generalName || "未設定")}<small>${[m.tactic1Name,m.tactic2Name].filter(Boolean).map(escapeHtml).join(" / ") || "戦法未設定"}</small></div>`).join("")}</div>`;
+}
+
+function consultationComparisonHtml(proposals) {
+  if ((proposals ?? []).length < 2) return "";
+  const maxFormations = Math.max(...proposals.map((proposal) => proposal.formations?.length ?? 0), 0);
+  return `<details class="card proposal-comparison" open><summary><strong>提案を比較</strong><span>${proposals.length}案</span></summary><div class="proposal-comparison-scroll"><table><thead><tr><th>部隊</th>${proposals.map((proposal) => `<th>${escapeHtml(proposal.proposerName || "提案者")}</th>`).join("")}</tr></thead><tbody>${Array.from({length:maxFormations},(_,index)=>`<tr><th>第${index+1}軍</th>${proposals.map((proposal)=>`<td>${consultationCompareCell(proposal.formations?.[index])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
+}
+
 async function renderFormationConsultationDetail() {
   const id = state.activeConsultationId;
   if (!id) { await navigate("formations"); return; }
@@ -3714,6 +3861,7 @@ async function renderFormationConsultationDetail() {
               ${consultation?.isActive ? `<button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付を終了</button>` : `<span class="muted">受付終了済み</span>`}
             </div>
           </div>
+          ${consultationComparisonHtml(proposals)}
           <div class="section-heading"><h2>届いた提案</h2><span>${proposals.length}件</span></div>
           ${proposals.length ? proposals.map(consultationProposalHtml).join("") : `<div class="card empty-state"><strong>まだ提案はありません</strong><p class="muted">相談URLをDiscordなどで共有してください。</p></div>`}
         </div>`,
@@ -3745,6 +3893,38 @@ function consultationTacticKindValues(tactics) {
   const extra = [...present].filter((kind) => !preferred.includes(kind) && kind !== "その他").sort((a, b) => a.localeCompare(b, "ja"));
   if (present.has("その他")) extra.push("その他");
   return [...ordered, ...extra];
+}
+
+function refreshTacticKindFilterButtons(action, selectedKinds) {
+  const selected = new Set(selectedKinds ?? []);
+  document.querySelectorAll(`[data-action="${action}"]`).forEach((button) => {
+    const kind = String(button.dataset.kind || "all");
+    const active = kind === "all" ? selected.size === 0 : selected.has(kind);
+    button.classList.toggle("selected", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function refreshTacticGradeFilterButtons(action, selectedGrades) {
+  const selected = new Set(selectedGrades ?? []);
+  document.querySelectorAll(`[data-action="${action}"]`).forEach((button) => {
+    const grade = String(button.dataset.grade || "all");
+    const active = grade === "all" ? selected.size === 0 : selected.has(grade);
+    button.classList.toggle("selected", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function tacticKindFilterButtonsHtml(kinds, selectedKinds, action, ariaLabel) {
+  const selected = new Set(selectedKinds ?? []);
+  const allSelected = selected.size === 0;
+  return `<div class="tactic-kind-filter" role="group" aria-label="${escapeAttr(ariaLabel || "戦法種別")}">
+    <button type="button" class="tactic-kind-chip ${allSelected ? "selected" : ""}" data-action="${escapeAttr(action)}" data-kind="all" aria-pressed="${allSelected ? "true" : "false"}">すべて</button>
+    ${kinds.map((kind) => {
+      const active = selected.has(kind);
+      return `<button type="button" class="tactic-kind-chip ${active ? "selected" : ""}" data-action="${escapeAttr(action)}" data-kind="${escapeAttr(kind)}" aria-pressed="${active ? "true" : "false"}">${escapeHtml(kind)}</button>`;
+    }).join("")}
+  </div>`;
 }
 
 function consultationInventoryHtml() {
@@ -3834,10 +4014,15 @@ function consultationPickerOptions() {
       if (picker.kind === "general") return !usedGeneralIds.has(item.qookkaId);
       return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
     })
-    .filter((item) => picker.kind === "general"
+    .filter((item) => selectedSet.has(item.qookkaId) ? true : picker.kind === "general"
       ? generalMatchesFilter(item, picker.query || "", picker.filters ?? state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" })
-      : ((!normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || "")))
-        && ((picker.kindFilter || "all") === "all" || consultationTacticKindLabel(item.kind) === picker.kindFilter)))
+      : (() => {
+          const matchesQuery = !normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || ""));
+          const kindFilters = picker.kindFilters ?? state.consultationTacticPickerKinds ?? [];
+          const gradeFilters = picker.gradeFilters ?? state.consultationTacticPickerGrades ?? ["S"];
+          const gradeLabel = tacticGradeLabel(item);
+          return matchesQuery && (!kindFilters.length || kindFilters.includes(consultationTacticKindLabel(item.kind))) && (!gradeFilters.length || !gradeLabel || gradeFilters.includes(gradeLabel));
+        })())
     .slice(0, 100);
 }
 
@@ -3879,10 +4064,10 @@ function consultationPickerFiltersHtml() {
   }
   const tactics = state.sharedConsultation?.inventory?.tactics ?? [];
   const kinds = consultationTacticKindValues(tactics);
-  const selected = picker.kindFilter || state.consultationTacticPickerKind || "all";
-  return `<div class="picker-filter-grid consultation-tactic-filter-grid">
-    <select id="consultation-picker-kind"><option value="all">全種別</option>${kinds.map((kind) => `<option value="${escapeAttr(kind)}" ${selected === kind ? "selected" : ""}>${escapeHtml(kind)}</option>`).join("")}</select>
-  </div>`;
+  const selectedKinds = picker.kindFilters ?? state.consultationTacticPickerKinds ?? [];
+  const selectedGrades = picker.gradeFilters ?? state.consultationTacticPickerGrades ?? ["S"];
+  return `<div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(selectedGrades, "toggle-consultation-tactic-grade")}</div>
+    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-consultation-tactic-kind", "戦法種別")}</div>`;
 }
 
 function consultationPickerSelectedSummaryHtml() {
@@ -4062,13 +4247,16 @@ async function renderFormationConsultation() {
 function renderFormationEditor() {
   const draft = state.formationDraft ?? newFormationDraft();
   state.formationDraft = draft;
+  const missing = state.formationCopyMissing;
   app.innerHTML = pageHtml({
     title: draft.id ? "編成を編集" : "新しい編成",
     subtitle: "所持武将・所持戦法から選択",
     content: `
       <div class="page-content formation-editor-page">
+        ${missing && (missing.generals?.length || missing.tactics?.length) ? `<div class="notice warning"><strong>手持ちにない項目があります</strong>${missing.generals?.length ? `<div>武将：${missing.generals.map(escapeHtml).join(" / ")}</div>` : ""}${missing.tactics?.length ? `<div>戦法：${missing.tactics.map(escapeHtml).join(" / ")}</div>` : ""}<small>不足箇所を入れ替えると保存できます。</small></div>` : ""}
         <form class="form-stack" data-form="save-my-formation">
           <div class="card form-stack">
+            <div class="draft-status-row"><span>下書き</span><strong id="formation-draft-status">${escapeHtml(state.formationDraftStatus || "自動保存")}</strong></div>
             <label class="field"><span>編成名</span><input name="name" maxlength="60" data-formation-path="name" value="${escapeAttr(draft.name)}" placeholder="例：対計略・第1軍" /></label>
             <div class="two-col">
               <label class="field"><span>兵種</span><select name="troopType" data-formation-path="troopType">
@@ -4078,11 +4266,12 @@ function renderFormationEditor() {
               <label class="field"><span>兵種Lv</span><select name="troopLevel" data-formation-path="troopLevel"><option value="">未設定</option>${Array.from({length:10},(_,i)=>i+1).map((lv)=>`<option value="${lv}" ${Number(draft.troopLevel)===lv?"selected":""}>Lv${lv}</option>`).join("")}</select></label>
             </div>
           </div>
+          ${formationTagEditorHtml(draft)}
           ${formationGeneralBatchButtonHtml()}
           ${formationSwapToolbarHtml()}
           ${draft.members.map(memberEditorHtml).join("")}
           <div class="card"><label class="field"><span>メモ（任意）</span><textarea name="note" maxlength="500" rows="3" data-formation-path="note" placeholder="運用条件、注意点など">${escapeHtml(draft.note)}</textarea></label></div>
-          <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>一覧画面で単体共有するか、まとめ共有に選んだ編成だけ共有URLから閲覧できます。</small></div></div>
+          <div class="privacy-notice"><span class="lock-mark">●</span><div><strong>保存しただけでは公開されません</strong><small>共有した編成だけ共有URLから閲覧できます。</small></div></div>
           <button type="submit" class="primary-button">編成を保存</button>
           ${draft.id ? `<button type="button" class="text-button danger-text" data-action="delete-my-formation" data-id="${escapeAttr(draft.id)}">この編成を削除</button>` : ""}
         </form>
@@ -4137,9 +4326,10 @@ function sharedFormationCardHtml(formation, index) {
         <div><span class="shared-set-number">${index + 1}</span><strong>${escapeHtml(formation.name || "名称未設定の編成")}</strong></div>
         <small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small>
       </div>
+      ${formationTagsHtml(formation)}
       <div class="formation-summary large">${formationSummaryMembers(formation)}</div>
       ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
-      ${formation.updatedAt ? `<small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small>` : ""}
+      <div class="shared-card-footer">${formation.updatedAt ? `<small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small>` : ""}<button type="button" class="secondary-button compact-button" data-action="copy-shared-formation-to-mine" data-set-token="${escapeAttr(state.shareSetToken || "")}" data-formation-id="${escapeAttr(formation.id || "")}">マイ編成にコピー</button></div>
     </article>`;
 }
 
@@ -4192,10 +4382,11 @@ async function renderSharedFormation() {
       content: `
         <div class="page-content shared-formation-page">
           <div class="card shared-formation-card">
-            <div class="privacy-badge shared">共有編成</div>
+            <div class="shared-set-card-heading"><div><span class="privacy-badge shared">共有編成</span><strong>${escapeHtml(formation.name || "共有編成")}</strong></div><small>${escapeHtml(observationTroopText({ report_summary: { troopType: formation.troopType, troopLevel: formation.troopLevel } }) || "兵種未設定")}</small></div>
+            ${formationTagsHtml(formation)}
             <div class="formation-summary large">${formationSummaryMembers(formation)}</div>
             ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
-            <small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small>
+            <div class="shared-card-footer"><small class="muted">更新 ${escapeHtml(formatDateTime(formation.updatedAt))}</small><button type="button" class="primary-button compact-button" data-action="copy-shared-formation-to-mine" data-token="${escapeAttr(state.shareToken || "")}">マイ編成にコピー</button></div>
           </div>
           <button type="button" class="secondary-button" style="width:100%" data-action="close-shared-formation">自分の画面へ</button>
         </div>`,
@@ -4550,6 +4741,10 @@ document.addEventListener("input", (event) => {
     if (formation) formation[consultationFormationPath] = target.value;
     return;
   }
+  if (target.id === "formation-share-title") {
+    state.formationShareTitle = target.value;
+    return;
+  }
   if (target.id === "inventory-search") {
     state.inventorySearch = target.value;
     if (!event.isComposing && target.dataset.composing !== "true") applyInventorySearchFilter();
@@ -4565,6 +4760,7 @@ document.addEventListener("input", (event) => {
   const formationPath = target.dataset?.formationPath;
   if (formationPath && state.formationDraft) {
     state.formationDraft[formationPath] = target.value;
+    scheduleFormationDraftSave();
     return;
   }
   if (target.id === "enemy-search") {
@@ -4687,14 +4883,6 @@ document.addEventListener("change", async (event) => {
     }
     return;
   }
-  if (target.id === "consultation-picker-kind") {
-    if (state.consultationPicker?.kind === "tactic") {
-      state.consultationPicker.kindFilter = target.value;
-      state.consultationTacticPickerKind = target.value;
-      refreshConsultationPickerOptions();
-    }
-    return;
-  }
   const consultationFormationPath = target.dataset?.consultationFormationPath;
   if (consultationFormationPath && state.consultationDraft) {
     const formation = state.consultationDraft.formations?.[Number(target.dataset.index)];
@@ -4717,12 +4905,10 @@ document.addEventListener("change", async (event) => {
     }
     return;
   }
-  if (target.id === "formation-picker-kind") {
-    if (state.formationPicker?.kind === "tactic") {
-      state.formationPicker.kindFilter = target.value;
-      state.formationTacticPickerKind = target.value;
-      refreshFormationPickerOptions();
-    }
+  const formationPath = target.dataset?.formationPath;
+  if (formationPath && state.formationDraft) {
+    state.formationDraft[formationPath] = target.value;
+    scheduleFormationDraftSave();
     return;
   }
   if (target.id === "report-files") {
@@ -4821,6 +5007,7 @@ document.addEventListener("submit", async (event) => {
 
   if (form.dataset.form === "save-my-formation") {
     if (!state.formationDraft) return;
+    if (state.formationDraftSaveTimer) { window.clearTimeout(state.formationDraftSaveTimer); state.formationDraftSaveTimer = null; }
     showLoading("編成を保存中...");
     try {
       state.formationDraft.name = String(formData.get("name") ?? "").trim();
@@ -4830,6 +5017,8 @@ document.addEventListener("submit", async (event) => {
       await apiRequest("my_formation_save", { formation: state.formationDraft });
       state.formationDraft = null;
       state.formationPicker = null;
+      state.formationDraftRemote = null;
+      state.formationCopyMissing = null;
       showToast("編成を保存しました。", "success");
       await navigate("formations");
     } catch (error) {
@@ -4901,6 +5090,198 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
+
+  if (action === "toggle-formation-tactic-grade") {
+    if (state.formationPicker?.kind !== "tactic") return;
+    const grade = String(button.dataset.grade || "all");
+    const selected = new Set(state.formationPicker.gradeFilters ?? state.formationTacticPickerGrades ?? ["S"]);
+    if (grade === "all") selected.clear();
+    else if (selected.has(grade)) selected.delete(grade);
+    else selected.add(grade);
+    state.formationPicker.gradeFilters = [...selected];
+    state.formationTacticPickerGrades = [...selected];
+    refreshTacticGradeFilterButtons("toggle-formation-tactic-grade", state.formationPicker.gradeFilters);
+    refreshFormationPickerOptions();
+    return;
+  }
+  if (action === "toggle-consultation-tactic-grade") {
+    if (state.consultationPicker?.kind !== "tactic") return;
+    const grade = String(button.dataset.grade || "all");
+    const selected = new Set(state.consultationPicker.gradeFilters ?? state.consultationTacticPickerGrades ?? ["S"]);
+    if (grade === "all") selected.clear();
+    else if (selected.has(grade)) selected.delete(grade);
+    else selected.add(grade);
+    state.consultationPicker.gradeFilters = [...selected];
+    state.consultationTacticPickerGrades = [...selected];
+    refreshTacticGradeFilterButtons("toggle-consultation-tactic-grade", state.consultationPicker.gradeFilters);
+    refreshConsultationPickerOptions();
+    return;
+  }
+
+  if (action === "toggle-formation-tactic-kind") {
+    if (state.formationPicker?.kind !== "tactic") return;
+    const kind = String(button.dataset.kind || "all");
+    const selected = new Set(state.formationPicker.kindFilters ?? state.formationTacticPickerKinds ?? []);
+    if (kind === "all") selected.clear();
+    else if (selected.has(kind)) selected.delete(kind);
+    else selected.add(kind);
+    state.formationPicker.kindFilters = [...selected];
+    state.formationTacticPickerKinds = [...selected];
+    refreshTacticKindFilterButtons("toggle-formation-tactic-kind", state.formationPicker.kindFilters);
+    refreshFormationPickerOptions();
+    return;
+  }
+  if (action === "toggle-consultation-tactic-kind") {
+    if (state.consultationPicker?.kind !== "tactic") return;
+    const kind = String(button.dataset.kind || "all");
+    const selected = new Set(state.consultationPicker.kindFilters ?? state.consultationTacticPickerKinds ?? []);
+    if (kind === "all") selected.clear();
+    else if (selected.has(kind)) selected.delete(kind);
+    else selected.add(kind);
+    state.consultationPicker.kindFilters = [...selected];
+    state.consultationTacticPickerKinds = [...selected];
+    refreshTacticKindFilterButtons("toggle-consultation-tactic-kind", state.consultationPicker.kindFilters);
+    refreshConsultationPickerOptions();
+    return;
+  }
+
+  if (action === "toggle-formation-favorite") {
+    const kind = button.dataset.kind === "general" ? "general" : "tactic";
+    const id = button.dataset.id || "";
+    const source = kind === "general" ? (state.myInventory?.generals ?? []) : (state.myInventory?.tactics ?? []);
+    const item = source.find((row) => row.qookkaId === id);
+    if (!item) return;
+    const next = !item.favorite;
+    item.favorite = next;
+    button.classList.toggle("selected", next);
+    button.setAttribute("aria-pressed", next ? "true" : "false");
+    try { await apiRequest("my_formation_favorite", { itemType: kind, qookkaId: id, favorite: next }); }
+    catch (error) { item.favorite = !next; showToast(error.message, "error"); }
+    if (state.formationPicker) refreshFormationPickerOptions();
+    return;
+  }
+  if (action === "toggle-formation-tag") {
+    if (!state.formationDraft) return;
+    const tag = String(button.dataset.tag || "").trim();
+    const tags = new Set(state.formationDraft.tags ?? []);
+    if (tags.has(tag)) tags.delete(tag); else if (tags.size < 8) tags.add(tag);
+    state.formationDraft.tags = [...tags];
+    scheduleFormationDraftSave();
+    renderFormationEditor();
+    return;
+  }
+  if (action === "add-formation-tag") {
+    if (!state.formationDraft) return;
+    const input = document.getElementById("formation-custom-tag");
+    const tag = String(input?.value || "").trim().slice(0,20);
+    if (!tag) return;
+    const tags = new Set(state.formationDraft.tags ?? []);
+    if (tags.size >= 8 && !tags.has(tag)) { showToast("タグは8個までです。", "error"); return; }
+    tags.add(tag); state.formationDraft.tags = [...tags];
+    scheduleFormationDraftSave(); renderFormationEditor(); return;
+  }
+  if (action === "resume-formation-draft") {
+    const payload = state.formationDraftRemote?.payload;
+    if (!payload) return;
+    state.formationDraft = structuredClone(payload);
+    state.formationDraftStatus = "自動保存済み";
+    state.formationCopyMissing = null;
+    await navigate("formation-edit");
+    return;
+  }
+  if (action === "discard-formation-draft") {
+    if (state.formationDraftSaveTimer) { window.clearTimeout(state.formationDraftSaveTimer); state.formationDraftSaveTimer = null; }
+    await apiRequest("my_formation_draft_delete").catch(() => {});
+    state.formationDraftRemote = null;
+    state.formationDraft = null;
+    renderMyFormationsBody();
+    return;
+  }
+  if (action === "move-formation") {
+    if (state.formationReorderBusy) return;
+    const id = button.dataset.id || "";
+    const direction = button.dataset.direction === "up" ? -1 : 1;
+    const index = state.myFormations.findIndex((row) => row.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= state.myFormations.length) return;
+    const next = [...state.myFormations];
+    [next[index], next[target]] = [next[target], next[index]];
+    state.myFormations = next;
+    renderMyFormationsBody();
+    state.formationReorderBusy = true;
+    try {
+      const response = await apiRequest("my_formation_reorder", { formationIds: next.map((row) => row.id) });
+      state.myFormations = response.formations ?? next;
+    } catch (error) { showToast(error.message, "error"); await loadMyFormationData({ force: true }); }
+    finally { state.formationReorderBusy = false; renderMyFormationsBody(); }
+    return;
+  }
+  if (action === "restore-formation-history") {
+    if (!window.confirm("この履歴の状態へ戻しますか？ 現在の状態も履歴に残ります。")) return;
+    showLoading("履歴を復元中...");
+    try { await apiRequest("my_formation_history_restore", { historyId: button.dataset.id }); await loadMyFormationData({ force: true }); showToast("以前の状態へ戻しました。", "success"); renderMyFormationsBody(); }
+    catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+    return;
+  }
+  if (action === "rename-formation-share-set") {
+    const title = window.prompt("共有セット名", button.dataset.title || "");
+    if (title === null) return;
+    try { await apiRequest("my_formation_share_set_update", { id: button.dataset.id, title }); await loadMyFormationData({ force: true }); renderMyFormationsBody(); }
+    catch (error) { showToast(error.message, "error"); }
+    return;
+  }
+  if (action === "regenerate-formation-share-set") {
+    try {
+      const response = await apiRequest("my_formation_share_set_regenerate", { id: button.dataset.id });
+      const url = shareUrlForFormationSet(response.shareSet?.shareToken || "");
+      await copyText(url);
+      showToast("新しいまとめ共有URLを発行してコピーしました。", "success");
+      await loadMyFormationData({ force: true }); renderMyFormationsBody();
+    } catch (error) { showToast(error.message, "error"); }
+    return;
+  }
+  if (action === "regenerate-formation-link") {
+    try {
+      const response = await apiRequest("my_formation_share", { id: button.dataset.id });
+      const url = shareUrlForFormation(response.formation);
+      await copyText(url);
+      showToast("新しい共有URLを発行してコピーしました。", "success");
+      await loadMyFormationData({ force: true }); renderMyFormationsBody();
+    } catch (error) { showToast(error.message, "error"); }
+    return;
+  }
+  if (action === "copy-shared-formation-to-mine") {
+    showLoading("手持ちと照合中...");
+    try {
+      if (!state.myInventory) await loadMyFormationData({ force: true });
+      const response = await apiRequest("shared_formation_copy_preview", { token: button.dataset.token || "", setToken: button.dataset.setToken || "", formationId: button.dataset.formationId || "" });
+      const source = response.formation;
+      const draft = cloneFormationForEdit(source);
+      draft.id = "";
+      draft.isShared = false;
+      draft.shareToken = null;
+      draft.name = `${source.name || "共有編成"}（コピー）`;
+      const ownedGenerals = new Set((state.myInventory?.generals ?? []).map((row) => row.qookkaId));
+      const ownedTactics = new Set((state.myInventory?.tactics ?? []).map((row) => row.qookkaId));
+      for (const member of draft.members ?? []) {
+        if (member.generalQookkaId && !ownedGenerals.has(member.generalQookkaId)) {
+          member.generalQookkaId = ""; member.generalName = "";
+          member.tactic1QookkaId = ""; member.tactic1Name = "";
+          member.tactic2QookkaId = ""; member.tactic2Name = "";
+          continue;
+        }
+        if (member.tactic1QookkaId && !ownedTactics.has(member.tactic1QookkaId)) { member.tactic1QookkaId = ""; member.tactic1Name = ""; }
+        if (member.tactic2QookkaId && !ownedTactics.has(member.tactic2QookkaId)) { member.tactic2QookkaId = ""; member.tactic2Name = ""; }
+      }
+      state.formationDraft = draft;
+      state.formationCopyMissing = { generals: response.missingGenerals ?? [], tactics: response.missingTactics ?? [] };
+      scheduleFormationDraftSave();
+      await navigate("formation-edit");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+    return;
+  }
 
   if (action === "reload-app") window.location.reload();
   if (action === "navigate") await navigate(button.dataset.view);
@@ -4995,7 +5376,8 @@ document.addEventListener("click", async (event) => {
         ? (formation?.members ?? []).map((row) => row.generalQookkaId).filter(Boolean)
         : [member?.tactic1QookkaId, member?.tactic2QookkaId].filter(Boolean),
       filters: kind === "general" ? { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
-      kindFilter: kind === "tactic" ? (state.consultationTacticPickerKind || "all") : "all",
+      kindFilters: kind === "tactic" ? [...(state.consultationTacticPickerKinds ?? [])] : [],
+      gradeFilters: kind === "tactic" ? [...(state.consultationTacticPickerGrades ?? ["S"])] : [],
     };
     renderFormationConsultationBody();
   }
@@ -5094,6 +5476,7 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "begin-share-formations") {
     state.formationShareSelection = [];
+    state.formationShareTitle = "";
     await navigate("formation-share-select");
   }
   if (action === "toggle-formation-share-selection") {
@@ -5120,7 +5503,8 @@ document.addEventListener("click", async (event) => {
     if (!ids.length) return;
     showLoading("共有URLを作成中...");
     try {
-      const response = await apiRequest("my_formation_share_set_create", { formationIds: ids });
+      const title = String(document.getElementById("formation-share-title")?.value || state.formationShareTitle || "").trim();
+      const response = await apiRequest("my_formation_share_set_create", { formationIds: ids, title });
       const url = shareUrlForFormationSet(response.shareSet?.shareToken || "");
       const copied = await copyText(url);
       state.formationShareSelection = [];
@@ -5149,6 +5533,9 @@ document.addEventListener("click", async (event) => {
     state.formationDraft = newFormationDraft();
     state.formationPicker = null;
     state.formationSwap = null;
+    state.formationCopyMissing = null;
+    state.formationDraftStatus = "自動保存";
+    scheduleFormationDraftSave();
     await navigate("formation-edit");
   }
   if (action === "edit-my-formation") {
@@ -5157,6 +5544,9 @@ document.addEventListener("click", async (event) => {
     state.formationDraft = cloneFormationForEdit(formation);
     state.formationPicker = null;
     state.formationSwap = null;
+    state.formationCopyMissing = null;
+    state.formationDraftStatus = "自動保存";
+    scheduleFormationDraftSave();
     await navigate("formation-edit");
   }
   if (action === "open-formation-picker") {
@@ -5173,7 +5563,8 @@ document.addEventListener("click", async (event) => {
         ? (state.formationDraft?.members ?? []).map((row) => row.generalQookkaId).filter(Boolean)
         : [member?.tactic1QookkaId, member?.tactic2QookkaId].filter(Boolean),
       filters: kind === "general" ? { ...(state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
-      kindFilter: kind === "tactic" ? (state.formationTacticPickerKind || "all") : "all",
+      kindFilters: kind === "tactic" ? [...(state.formationTacticPickerKinds ?? [])] : [],
+      gradeFilters: kind === "tactic" ? [...(state.formationTacticPickerGrades ?? ["S"])] : [],
     };
     renderFormationEditor();
   }
@@ -5225,6 +5616,7 @@ document.addEventListener("click", async (event) => {
       member.tactic2QookkaId = ids[1] || ""; member.tactic2Name = second?.name || "";
     }
     state.formationPicker = null;
+    scheduleFormationDraftSave();
     renderFormationEditor();
   }
   if (action === "start-formation-swap") {
@@ -5246,6 +5638,7 @@ document.addEventListener("click", async (event) => {
       if (Number(swap.first.slot) === slot) { swap.first = null; renderFormationEditor(); return; }
       swapMemberSlots(state.formationDraft.members, swap.first.slot, slot);
       state.formationSwap = null;
+      scheduleFormationDraftSave();
       renderFormationEditor();
     }
   }
@@ -5260,6 +5653,7 @@ document.addEventListener("click", async (event) => {
       if (Number(swap.first.slot) === target.slot && swap.first.field === target.field) { swap.first = null; renderFormationEditor(); return; }
       swapTacticSlots(state.formationDraft.members, swap.first, target);
       state.formationSwap = null;
+      scheduleFormationDraftSave();
       renderFormationEditor();
     }
   }
@@ -5288,10 +5682,13 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "delete-my-formation") {
     if (!window.confirm("この編成を削除しますか？共有URLも無効になります。")) return;
+    if (state.formationDraftSaveTimer) { window.clearTimeout(state.formationDraftSaveTimer); state.formationDraftSaveTimer = null; }
     showLoading("編成を削除中...");
     try {
       await apiRequest("my_formation_delete", { id: button.dataset.id });
+      await apiRequest("my_formation_draft_delete").catch(() => {});
       state.formationDraft = null;
+      state.formationDraftRemote = null;
       showToast("編成を削除しました。", "success");
       await navigate("formations");
     } catch (error) { showToast(error.message, "error"); }
