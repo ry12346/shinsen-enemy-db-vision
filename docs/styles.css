@@ -4192,3 +4192,40 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
   border: 1px solid transparent;
   border-radius: 9px;
 }
+
+
+/* ==========================================================
+   v2.4.1 編成相談: PCワイド表示
+   ========================================================== */
+@media (min-width: 1000px) {
+  .page-shell.consultation-wide-shell {
+    width: min(100%, 1480px);
+  }
+
+  .consultation-wide-shell .page-content {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .consultation-wide-shell .consultation-general-chip-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .consultation-wide-shell .consultation-builder-layout {
+    grid-template-columns: minmax(0, 2.15fr) minmax(380px, .85fr);
+    gap: 22px;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list {
+    max-height: min(66dvh, 760px);
+  }
+}
+
+@media (min-width: 1200px) {
+  .consultation-wide-shell .consultation-team-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+}

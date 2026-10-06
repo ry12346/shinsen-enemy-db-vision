@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.4.1";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const INTEL_TITLE_LEVELS = Object.freeze([
@@ -4142,21 +4142,9 @@ function consultationInventoryHtml() {
     ? (inventory.generals ?? []).filter((general) => Boolean(general.supportCandidate)).length
     : 0;
 
-  // Qookka URLから直接読み込んだ場合は、APIが返した武将順をそのまま使う。
-  // sourceOrderが無いデータだけ、コスト降順 -> Qookka ID順で安定化する。
-  if (state.formationSupportMode) {
-    star5Generals.sort((a, b) => {
-      const aOrder = Number(a?.sourceOrder);
-      const bOrder = Number(b?.sourceOrder);
-      const aHasOrder = Number.isFinite(aOrder);
-      const bHasOrder = Number.isFinite(bOrder);
-      if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
-      if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1;
-      return supportGeneralFallbackSort(a, b);
-    });
-  } else {
-    star5Generals.sort(supportGeneralFallbackSort);
-  }
+  // 凸確認・編成相談では、勢力ごとの比較を優先するため
+  // 各勢力内をコスト降順 -> Qookka武将ID順で統一する。
+  star5Generals.sort(supportGeneralFallbackSort);
 
   const factionGroups = new Map();
   for (const general of star5Generals) {
@@ -4525,6 +4513,7 @@ function renderFormationSupportDirectBody() {
     activeNav: "formations",
     backAction: "back-to-formation-support-start",
     showNav: false,
+    shellClass: "consultation-wide-shell",
   });
   if (state.consultationPicker) window.setTimeout(() => document.getElementById("consultation-picker-search")?.focus(), 30);
 }
@@ -4579,6 +4568,7 @@ function renderFormationConsultationBody() {
       </div>
       ${consultationPickerHtml()}`,
     showNav: false,
+    shellClass: "consultation-wide-shell",
   });
   if (state.consultationPicker) window.setTimeout(() => document.getElementById("consultation-picker-search")?.focus(), 30);
 }
