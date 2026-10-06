@@ -3657,3 +3657,190 @@ button.tag-chip { cursor:pointer; touch-action:manipulation; }
     flex-direction: column;
   }
 }
+
+/* v2.2.1 他人編成支援: 勢力固定順 / Qookka武将順保持 */
+
+/* v2.3.0 編成候補・折りたたみ戦法・ドラッグ&ドロップ */
+.support-general-chip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.support-general-chip-head > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.support-candidate-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid rgba(216,188,118,.24);
+  border-radius: 999px;
+  background: rgba(216,188,118,.06);
+  color: var(--muted);
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.support-candidate-button.selected {
+  border-color: rgba(216,188,118,.72);
+  background: rgba(216,188,118,.18);
+  color: #efd79d;
+}
+.support-candidate-button span { margin-right: 4px; }
+.support-general-chip.candidate-selected {
+  border-color: rgba(216,188,118,.36);
+  box-shadow: 0 0 0 1px rgba(216,188,118,.08) inset;
+}
+
+.formation-dnd-help {
+  margin: -1px 2px 2px;
+  color: var(--muted);
+  font-size: .69rem;
+  line-height: 1.5;
+}
+.formation-dnd-help strong { color: #d8bc76; letter-spacing: -2px; }
+
+.selected-general-display {
+  grid-template-columns: minmax(0,1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.selected-general-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.selected-general-main > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 780;
+  color: var(--text);
+}
+.selected-general-main > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: .68rem;
+}
+.selected-general-display:not(.selected) .selected-general-main > span {
+  color: var(--muted);
+  font-weight: 600;
+}
+.tactic-panel-chevron {
+  color: var(--muted);
+  font-size: .65rem;
+  pointer-events: none;
+}
+.formation-dnd-handle {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(213,224,240,.11);
+  border-radius: 10px;
+  background: rgba(5,10,17,.46);
+  color: #c9b77e;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -3px;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+}
+.formation-dnd-handle:active { cursor: grabbing; }
+
+.formation-tactic-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+  animation: formation-tactic-open .12s ease-out;
+}
+@keyframes formation-tactic-open {
+  from { opacity: .4; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.formation-tactic-dnd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 7px;
+}
+.formation-tactic-dnd-slot {
+  min-width: 0;
+  min-height: 52px;
+  padding: 7px 7px 7px 9px;
+  border: 1px solid rgba(213,224,240,.11);
+  border-radius: 12px;
+  background: rgba(5,10,17,.48);
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.formation-tactic-dnd-slot > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.formation-tactic-dnd-slot small {
+  color: #c9b77e;
+  font-size: .61rem;
+}
+.formation-tactic-dnd-slot strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: .75rem;
+}
+.formation-tactic-dnd-slot.empty strong { color: var(--muted); font-weight: 600; }
+.formation-tactic-dnd-slot .formation-dnd-handle {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  font-size: .9rem;
+}
+.formation-tactic-dnd-slot.empty .formation-dnd-handle { visibility: hidden; }
+
+.formation-dnd-source {
+  opacity: .48 !important;
+  outline: 1px dashed rgba(216,188,118,.55);
+  outline-offset: 2px;
+}
+.formation-dnd-over {
+  border-color: rgba(216,188,118,.82) !important;
+  background: rgba(216,188,118,.15) !important;
+  box-shadow: 0 0 0 2px rgba(216,188,118,.12) inset;
+}
+.formation-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 99999;
+  max-width: min(70vw, 260px);
+  padding: 8px 11px;
+  border: 1px solid rgba(216,188,118,.55);
+  border-radius: 11px;
+  background: rgba(13,21,32,.95);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgba(0,0,0,.35);
+  font-size: .75rem;
+  font-weight: 750;
+  pointer-events: none;
+  will-change: transform;
+}
+body.formation-dragging { user-select: none; }
+body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s ease, background .08s ease; }
+
+@media (max-width: 430px) {
+  .support-general-chip-head { align-items: stretch; flex-direction: column; }
+  .support-candidate-button { align-self: flex-start; }
+  .formation-tactic-dnd-grid { grid-template-columns: 1fr 1fr; }
+}
