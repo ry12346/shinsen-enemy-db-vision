@@ -4923,3 +4923,10 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
   align-self: start;
   height: auto;
 }
+
+
+/* v2.4.11: consultation candidate controls */
+.consultation-candidate-actions { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.55rem .65rem; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft,#f8fafc); margin-bottom:.7rem; }
+.consultation-candidate-actions > span { font-size:.82rem; font-weight:700; }
+.consultation-candidate-actions .button-row { display:flex; gap:.35rem; flex-wrap:wrap; justify-content:flex-end; }
+@media (max-width: 899px) { .consultation-candidate-actions { align-items:flex-start; flex-direction:column; } .consultation-candidate-actions .button-row { width:100%; justify-content:flex-start; } }

@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.10";
+const APP_VERSION = "2.4.11";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
@@ -3863,6 +3863,7 @@ function persistFormationConsultationLocal() {
       paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
       paletteSource: state.consultationTacticPaletteSource || "owned",
       generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
+      candidateGeneralIds: (state.sharedConsultation?.inventory?.generals ?? []).filter((general) => Boolean(general.supportCandidate)).map((general) => String(general.qookkaId || "")).filter(Boolean),
       savedAt,
     }));
     state.consultationLocalSavedAt = savedAt;
@@ -4212,9 +4213,7 @@ function consultationInventoryHtml() {
   const star5Generals = (inventory.generals ?? [])
     .filter((general) => Number(general.star) === 5)
     .slice();
-  const supportCandidateCount = state.formationSupportMode
-    ? (inventory.generals ?? []).filter((general) => Boolean(general.supportCandidate)).length
-    : 0;
+  const supportCandidateCount = star5Generals.filter((general) => Boolean(general.supportCandidate)).length;
 
   // 凸確認・編成相談では、勢力ごとの比較を優先するため
   // 各勢力内をコスト降順 -> Qookka武将ID順で統一する。
@@ -4239,9 +4238,8 @@ function consultationInventoryHtml() {
         <section class="consultation-inventory-group">
           <div class="consultation-inventory-group-title"><strong>${escapeHtml(faction)}</strong><span>${factionGroups.get(faction).length}名</span></div>
           <div class="consultation-general-chip-list">
-            ${factionGroups.get(faction).map((general) => state.formationSupportMode
-              ? `<div class="consultation-general-chip support-general-chip ${general.supportCandidate ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${supportCandidateButtonHtml(general)}</div>${supportDupeControlHtml(general)}</div>`
-              : `<span class="consultation-general-chip"><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></span>`).join("")}
+            ${factionGroups.get(faction).map((general) =>
+              `<div class="consultation-general-chip support-general-chip ${general.supportCandidate ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${supportCandidateButtonHtml(general)}</div>${state.formationSupportMode ? supportDupeControlHtml(general) : ""}</div>`).join("")}
           </div>
         </section>`).join("")
     : `<div class="notice subtle">★5武将の分類情報を取得できませんでした。編成作成では全所持武将から選択できます。</div>`;
@@ -4249,8 +4247,12 @@ function consultationInventoryHtml() {
   const openInventory = state.formationSupportMode || !isConsultationMobileViewport();
   return `
     <details class="card consultation-inventory-card" ${openInventory ? "open" : ""}>
-      <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>${state.formationSupportMode ? `編成候補 ${supportCandidateCount}名 ・ ` : ""}勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
-      <div class="consultation-inventory-body consultation-grouped-inventory">${generalGroupsHtml}${state.formationSupportMode ? `<div class="consultation-mobile-inventory-actions"><button type="button" class="primary-button" data-action="jump-to-consultation-builder">候補を決めたら編成へ</button></div>` : ""}</div>
+      <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>武将選択に表示 ${supportCandidateCount}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
+      <div class="consultation-inventory-body consultation-grouped-inventory">
+        <div class="consultation-candidate-actions"><span>武将選択に出す武将</span><div class="button-row"><button type="button" class="text-button compact-button" data-action="set-all-consultation-candidates" data-value="1">すべて表示</button><button type="button" class="text-button compact-button" data-action="set-all-consultation-candidates" data-value="0">すべて外す</button></div></div>
+        ${generalGroupsHtml}
+        ${state.formationSupportMode ? `<div class="consultation-mobile-inventory-actions"><button type="button" class="primary-button" data-action="jump-to-consultation-builder">候補を決めたら編成へ</button></div>` : ""}
+      </div>
     </details>`;
 }
 
@@ -4284,7 +4286,7 @@ function consultationPickerOptions() {
     .filter((item) => {
       if (selectedSet.has(item.qookkaId)) return true;
       if (picker.kind === "general") {
-        if (state.formationSupportMode && !item.supportCandidate) return false;
+        if (!item.supportCandidate) return false;
         return !usedGeneralIds.has(item.qookkaId);
       }
       return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
@@ -4322,7 +4324,7 @@ function consultationPickerListHtml() {
         ? `<span>${escapeHtml(consultationDupeText(item))}${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>`
         : `<span>${item.grade ? `${Number(item.grade) === 5 ? "S" : `Grade${Number(item.grade)}`} ・ ` : ""}${escapeHtml(consultationTacticKindLabel(item.kind))}</span>`}
     </button>`;
-  }).join("") : `<div class="choice-empty">${state.formationSupportMode && picker?.kind === "general" ? "上の所持武将一覧で「編成候補」を付けてください。" : "候補がありません"}</div>`;
+  }).join("") : `<div class="choice-empty">${picker?.kind === "general" ? "上の所持武将一覧で「武将選択に表示」を付けてください。" : "候補がありません"}</div>`;
 }
 
 function consultationPickerFiltersHtml() {
@@ -4843,7 +4845,7 @@ function renderFormationConsultationBody() {
     content: `
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
-        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。所持武将一覧は★5を表示し、戦法は各武将の第1・第2枠から割り当てます。PCでは戦法パレットからドラッグもできます。</div>
+        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。所持武将一覧で「武将選択に表示」を外した武将は、武将選択の候補から隠せます。既に部隊へ配置した武将は外しても消えません。戦法は各武将の第1・第2枠から割り当てます。</div>
         <div class="consultation-autosave-note"><span>この端末に自動保存</span>${state.consultationLocalSavedAt ? `<small>最終保存 ${escapeHtml(formatDateTime(state.consultationLocalSavedAt))}</small>` : `<small>入力すると自動保存されます</small>`}</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
@@ -4893,6 +4895,10 @@ async function renderFormationConsultation() {
     const response = await apiRequest("shared_formation_consultation", { token: state.consultationToken });
     state.sharedConsultation = response.consultation;
     const saved = loadFormationConsultationLocal(state.consultationToken);
+    const savedCandidateIds = Array.isArray(saved?.candidateGeneralIds) ? new Set(saved.candidateGeneralIds.map((value) => String(value))) : null;
+    for (const general of state.sharedConsultation?.inventory?.generals ?? []) {
+      general.supportCandidate = savedCandidateIds ? savedCandidateIds.has(String(general.qookkaId || "")) : true;
+    }
     state.consultationDraft = saved?.draft ?? newConsultationProposalDraft();
     state.consultationLocalSavedAt = saved?.savedAt || "";
     if (saved) {
@@ -6216,13 +6222,21 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "toggle-support-candidate") {
-    if (!state.formationSupportMode) return;
     const id = button.dataset.id || "";
     const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === id);
     if (!general) return;
     general.supportCandidate = !general.supportCandidate;
-    persistFormationSupportLocal();
-    renderFormationSupportDirectBody();
+    persistConsultationWorkspaceLocal();
+    if (state.formationSupportMode) renderFormationSupportDirectBody();
+    else renderFormationConsultationBody();
+    return;
+  }
+  if (action === "set-all-consultation-candidates") {
+    const selected = button.dataset.value === "1";
+    for (const general of state.sharedConsultation?.inventory?.generals ?? []) general.supportCandidate = selected;
+    persistConsultationWorkspaceLocal();
+    if (state.formationSupportMode) renderFormationSupportDirectBody();
+    else renderFormationConsultationBody();
     return;
   }
   if (action === "toggle-formation-tactic-panel") {
@@ -6608,6 +6622,11 @@ document.addEventListener("click", async (event) => {
     try {
       const response = await apiRequest("my_formation_consultation_adopt", { proposalId: button.dataset.id });
       showToast(`${response.formations?.length || 0}部隊をマイ編成へ追加しました。`, "success");
+      if (response.skippedTactics?.length) {
+        const labels = response.skippedTactics.map((item) => item?.tacticName || "戦法").filter(Boolean);
+        const unique = [...new Set(labels)];
+        showToast(`既存編成で使用中のため ${response.skippedTactics.length}枠を空欄にしました：${unique.slice(0, 6).join(" / ")}${unique.length > 6 ? " ほか" : ""}`, "warning");
+      }
       await renderFormationConsultationDetail();
     } catch (error) { showToast(error.message, "error"); }
     finally { hideLoading(); }
