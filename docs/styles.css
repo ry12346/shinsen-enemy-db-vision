@@ -4841,7 +4841,7 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
 }
 
 /* ==========================================================
-   v2.4.9 PC編成相談: 戦法一覧の独立スクロールを実効化
+   v2.4.10 PC編成相談: 戦法一覧の独立スクロールを実効化
    ========================================================== */
 @media (min-width: 1000px) {
   .consultation-wide-shell .consultation-builder-layout {
@@ -4908,4 +4908,18 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
     border: 2px solid transparent;
     background-clip: padding-box;
   }
+}
+
+/* ==========================================================
+   v2.4.10 編成相談: 少数戦法時の行伸長を防止
+   ========================================================== */
+.consultation-tactic-palette-list {
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
+}
+
+.consultation-palette-tactic {
+  align-self: start;
+  height: auto;
 }
