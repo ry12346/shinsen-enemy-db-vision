@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.15";
+const APP_VERSION = "2.4.16";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
@@ -139,6 +139,18 @@ const state = {
 
 let consultationAnswersTimer = null;
 let consultationAnswersRefreshPromise = null;
+let consultationAnswersNextAt = 0;
+let consultationAnswersIdleChecks = 0;
+let consultationAnswersFailures = 0;
+
+function consultationSaveDataEnabled() {
+  const connection = navigator.connection;
+  return connection?.saveData === true || ["slow-2g", "2g"].includes(connection?.effectiveType);
+}
+
+function consultationAnswersBaseDelay() {
+  return consultationSaveDataEnabled() ? 180_000 : 60_000;
+}
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
 const OCR_SHEET_WIDTH = 1800;
@@ -3952,6 +3964,13 @@ function supportPayloadSignature(value) {
   return JSON.stringify(ordered(value));
 }
 
+function supportPayloadPatch(payload, base) {
+  if (!base) return null;
+  // 所持情報が変わらない編集では、所持武将・戦法を繰り返し送らない。
+  return Object.fromEntries(Object.entries(payload).filter(([key, value]) =>
+    supportPayloadSignature(value) !== supportPayloadSignature(base[key])));
+}
+
 function supportWorkspacePayload() {
   const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value && Object.prototype.hasOwnProperty.call(value, key)).map((key) => [key, value[key]]));
   const draft = state.consultationDraft;
@@ -4023,6 +4042,7 @@ async function openSupportCloudWorkspace(key, localSaved, { preferRemote = false
   if (previous?.pending && !previous.error && !previous.conflict) void flushSupportCloudSave(previous);
   const context = { key, kind: key.startsWith("direct:") ? "direct" : "consultation", linked: null, accountId: null,
     revision: 0, baseSignature: "", pending: null, timer: null, promise: null, error: "", conflict: null, loading: true, updatedAt: "",
+    basePayload: null, supportsPayloadPatch: false, pendingSince: null,
     localMetadata: localSaved?.sync || null, title: "編成相談" };
   state.supportSync = context;
   try {
@@ -4032,10 +4052,12 @@ async function openSupportCloudWorkspace(key, localSaved, { preferRemote = false
     state.supportCloudLinked = context.linked;
     if (!context.linked) return localSaved;
     context.accountId = response.accountId;
+    context.supportsPayloadPatch = response.supportsPayloadPatch === true;
     const remote = response.draft;
     context.revision = remote?.revision ?? 0;
     context.updatedAt = remote?.updatedAt || "";
     context.baseSignature = remote?.payload ? supportPayloadSignature(remote.payload) : "";
+    context.basePayload = context.baseSignature ? JSON.parse(context.baseSignature) : null;
     const metadata = localSaved?.sync;
     const localSignature = localSaved ? supportPayloadSignature(savedSupportPayload(localSaved)) : "";
     const remoteSaved = remote?.payload ? { ...remote.payload, workspaceKey: key, savedAt: remote.updatedAt,
@@ -4066,29 +4088,42 @@ function queueSupportCloudSave(payload = supportWorkspacePayload()) {
   if (!context || context.key !== currentSupportWorkspaceKey() || context.linked !== true || context.loading) return;
   const signature = supportPayloadSignature(payload);
   context.pending = !context.promise && signature === context.baseSignature ? null : payload;
+  if (!context.pending) context.pendingSince = null;
+  else context.pendingSince ??= Date.now();
   context.title = state.sharedConsultation?.title || (context.kind === "direct" ? "他人の編成" : "編成相談");
   if (context.timer) window.clearTimeout(context.timer);
-  if (context.pending && !context.error && !context.conflict) context.timer = window.setTimeout(() => void flushSupportCloudSave(context), 650);
+  if (context.pending && !context.error && !context.conflict && navigator.onLine !== false) {
+    const reduced = consultationSaveDataEnabled();
+    const delay = Math.max(0, Math.min(reduced ? 10_000 : 3_000,
+      (context.pendingSince + (reduced ? 30_000 : 15_000)) - Date.now()));
+    context.timer = window.setTimeout(() => void flushSupportCloudSave(context), delay);
+  }
   updateSupportSyncStatus();
 }
 
 async function flushSupportCloudSave(context = state.supportSync) {
   if (!context || context.linked !== true || context.loading || context.error || context.conflict) return false;
+  if (navigator.onLine === false) return false;
   if (context.timer) { window.clearTimeout(context.timer); context.timer = null; }
   if (context.promise) { await context.promise; return flushSupportCloudSave(context); }
   if (!context.pending) return true;
   const payload = context.pending;
   const signature = supportPayloadSignature(payload);
   const title = context.kind === "direct" ? payload.name ? `${payload.name}さんの編成` : "他人の編成" : context.title;
+  const patch = context.supportsPayloadPatch && context.revision > 0 ? supportPayloadPatch(payload, context.basePayload) : null;
   context.promise = (async () => {
     try {
       const response = await apiRequest("formation_support_draft_save", { workspaceKey: context.key,
-        accountId: context.accountId, expectedRevision: context.revision, title, payload });
+        accountId: context.accountId, expectedRevision: context.revision, title,
+        ...(patch ? { payloadPatch: patch } : { payload }) });
       if (response.accountId !== context.accountId) throw new Error("Discord連携が変わりました。端末の下書きは保持しています。");
       context.revision = response.draft.revision;
       context.updatedAt = response.draft.updatedAt;
       context.baseSignature = signature;
-      if (context.pending && supportPayloadSignature(context.pending) === signature) context.pending = null;
+      context.basePayload = payload;
+      if (context.pending && supportPayloadSignature(context.pending) === signature) {
+        context.pending = null; context.pendingSince = null;
+      }
       updateSupportLocalSyncMetadata(context);
       return true;
     } catch (error) {
@@ -4143,6 +4178,8 @@ async function resolveSupportSync(useRemote) {
   const remote = response.draft;
   context.linked = true; context.accountId = response.accountId; context.revision = remote?.revision ?? 0;
   context.baseSignature = remote?.payload ? supportPayloadSignature(remote.payload) : "";
+  context.basePayload = context.baseSignature ? JSON.parse(context.baseSignature) : null;
+  context.supportsPayloadPatch = response.supportsPayloadPatch === true;
   context.updatedAt = remote?.updatedAt || ""; context.conflict = null; context.error = ""; context.localMetadata = null;
   if (useRemote) {
     if (!remote?.payload) {
@@ -4170,6 +4207,11 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) void flushSupportCloudSave();
 });
 window.addEventListener("pagehide", () => { void flushSupportCloudSave(); });
+window.addEventListener("online", () => {
+  // 復帰後も版の照合は通常の保存・競合処理を通す。
+  void flushSupportCloudSave();
+  consultationAnswersNextAt = Date.now();
+});
 
 async function retrySupportCloudSync() {
   const key = currentSupportWorkspaceKey();
@@ -5257,7 +5299,7 @@ function renderFormationSupportDirectBody() {
 function consultationPublicAnswersHtml() {
   const proposals = state.sharedConsultation?.proposals ?? [];
   return `<div class="section-heading"><h2>参考回答</h2><span>${proposals.length}件</span></div>
-    <div class="consultation-answer-toolbar"><p class="muted">回答者名をタップするとコメントと編成を読めます。表示中は30秒ごとに更新します。</p><button type="button" class="secondary-button compact-button" data-action="refresh-consultation-answers">更新</button></div>
+    <div class="consultation-answer-toolbar"><p class="muted">回答者名をタップするとコメントと編成を読めます。通信量を抑えるため、自動確認の間隔は1～5分です。「更新」でいつでも確認できます。</p><button type="button" class="secondary-button compact-button" data-action="refresh-consultation-answers">更新</button></div>
     ${state.consultationAnswersError ? `<p class="notice warning" role="status">${escapeHtml(state.consultationAnswersError)}</p>` : ""}
     ${consultationComparisonHtml(proposals, { readOnly: true })}
     ${proposals.length ? proposals.map((proposal) => consultationProposalHtml(proposal, { readOnly: true, inventory: state.sharedConsultation?.inventory })).join("") : `<div class="card empty-state"><p class="muted">公開された回答はまだありません。相談者のみへの回答はここには表示されません。</p></div>`}`;
@@ -5270,8 +5312,13 @@ function stopConsultationAnswersPolling() {
 
 function startConsultationAnswersPolling() {
   stopConsultationAnswersPolling();
+  consultationAnswersIdleChecks = 0;
+  consultationAnswersFailures = 0;
+  consultationAnswersNextAt = Date.now() + consultationAnswersBaseDelay();
   consultationAnswersTimer = window.setInterval(() => {
-    if (!document.hidden) void refreshConsultationPublicAnswers();
+    if (!document.hidden && navigator.onLine !== false && Date.now() >= consultationAnswersNextAt) {
+      void refreshConsultationPublicAnswers({ automatic: true });
+    }
   }, 30000);
 }
 
@@ -5296,21 +5343,28 @@ function updateConsultationPublicAnswersPanel() {
   if (link) link.textContent = `参考回答を読む（${state.sharedConsultation?.proposals?.length || 0}件）`;
 }
 
-async function refreshConsultationPublicAnswers({ manual = false } = {}) {
+async function refreshConsultationPublicAnswers({ manual = false, automatic = false } = {}) {
   const token = state.consultationToken;
   if (!consultationStillOpen(token)) return;
+  if (automatic && (document.hidden || navigator.onLine === false)) return;
   if (consultationAnswersRefreshPromise?.token === token) return consultationAnswersRefreshPromise.promise;
   const refreshEntry = { token, promise: null };
   consultationAnswersRefreshPromise = refreshEntry;
   const promise = (async () => {
     try {
-      const response = await apiRequest("shared_formation_consultation_answers", { token });
+      const response = await apiRequest("shared_formation_consultation_answers", { token,
+        ...(state.sharedConsultation.answersVersion ? { knownVersion: state.sharedConsultation.answersVersion } : {}) });
       if (!consultationStillOpen(token)) return;
-      const changed = JSON.stringify(state.sharedConsultation.proposals ?? []) !== JSON.stringify(response.proposals ?? []);
+      const changed = response.notModified !== true && JSON.stringify(state.sharedConsultation.proposals ?? []) !== JSON.stringify(response.proposals ?? []);
       const hadError = Boolean(state.consultationAnswersError);
-      state.sharedConsultation.proposals = response.proposals ?? [];
+      if (response.notModified !== true) state.sharedConsultation.proposals = response.proposals ?? [];
+      state.sharedConsultation.answersVersion = response.answersVersion || "";
       state.sharedConsultation.isActive = response.isActive;
       state.consultationAnswersError = "";
+      consultationAnswersFailures = 0;
+      consultationAnswersIdleChecks = !manual && !changed ? Math.min(consultationAnswersIdleChecks + 1, 3) : 0;
+      consultationAnswersNextAt = Date.now() + Math.min(300_000,
+        consultationAnswersBaseDelay() * 2 ** consultationAnswersIdleChecks);
       if (changed || hadError || manual) updateConsultationPublicAnswersPanel();
       if (response.isActive === false) {
         const availability = document.getElementById("consultation-availability");
@@ -5320,6 +5374,9 @@ async function refreshConsultationPublicAnswers({ manual = false } = {}) {
       }
     } catch (error) {
       if (!consultationStillOpen(token)) return;
+      consultationAnswersFailures = Math.min(consultationAnswersFailures + 1, 3);
+      consultationAnswersNextAt = Date.now() + Math.min(300_000,
+        consultationAnswersBaseDelay() * 2 ** consultationAnswersFailures);
       if (error.code === "CONSULTATION_NOT_FOUND") {
         state.sharedConsultation.isActive = false;
         state.sharedConsultation.proposals = [];
@@ -7968,8 +8025,7 @@ window.addEventListener("beforeunload", () => {
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`, { updateViaCache: "none" });
-      await registration.update();
+      await navigator.serviceWorker.register(`./sw.js?v=${APP_VERSION}`, { updateViaCache: "none" });
     } catch {
       // Service Workerの更新失敗だけでアプリ本体は停止させない。
     }
