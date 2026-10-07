@@ -4839,4 +4839,73 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
     font-size: .82rem;
   }
 }
-\n\n/* ==========================================================\n   v2.4.8 PC編成相談: 独立スクロール固定 + 部隊位置保持\n   ========================================================== */\n@media (min-width: 1000px) {\n  .consultation-wide-shell .consultation-builder-layout {\n    min-height: 600px;\n    height: calc(100dvh - 118px);\n    max-height: 900px;\n  }\n\n  .consultation-wide-shell .consultation-builder-teams {\n    height: 100%;\n    min-height: 0;\n    overflow-y: scroll;\n    overflow-x: hidden;\n    scrollbar-gutter: stable;\n  }\n\n  .consultation-wide-shell .consultation-builder-tactics {\n    display: grid;\n    grid-template-rows: auto minmax(0, 1fr);\n    height: 100%;\n    min-height: 0;\n    overflow: hidden;\n  }\n\n  .consultation-wide-shell .consultation-tactic-palette {\n    height: auto;\n    min-height: 0;\n    max-height: 100%;\n    grid-template-rows: auto auto auto auto minmax(160px, 1fr);\n    overflow: hidden;\n  }\n\n  .consultation-wide-shell .consultation-tactic-palette-list {\n    height: 100%;\n    min-height: 160px;\n    max-height: none;\n    overflow-y: scroll !important;\n    overflow-x: hidden;\n    overscroll-behavior: contain;\n    scrollbar-gutter: stable;\n    padding-right: 6px;\n  }\n\n  .consultation-wide-shell .consultation-tactic-palette-list::-webkit-scrollbar,\n  .consultation-wide-shell .consultation-builder-teams::-webkit-scrollbar {\n    width: 10px;\n  }\n\n  .consultation-wide-shell .consultation-tactic-palette-list::-webkit-scrollbar-thumb,\n  .consultation-wide-shell .consultation-builder-teams::-webkit-scrollbar-thumb {\n    background: rgba(148, 163, 184, .32);\n    border-radius: 999px;\n    border: 2px solid transparent;\n    background-clip: padding-box;\n  }\n}\n
+
+/* ==========================================================
+   v2.4.9 PC編成相談: 戦法一覧の独立スクロールを実効化
+   ========================================================== */
+@media (min-width: 1000px) {
+  .consultation-wide-shell .consultation-builder-layout {
+    min-height: 600px;
+    height: calc(100dvh - 118px);
+    max-height: 900px;
+    overflow: hidden;
+    align-items: stretch;
+  }
+
+  .consultation-wide-shell .consultation-builder-teams {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .consultation-wide-shell .consultation-builder-tactics {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette {
+    display: grid;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list {
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    padding-right: 6px;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list::-webkit-scrollbar,
+  .consultation-wide-shell .consultation-builder-teams::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list::-webkit-scrollbar-track,
+  .consultation-wide-shell .consultation-builder-teams::-webkit-scrollbar-track {
+    background: rgba(255,255,255,.025);
+    border-radius: 999px;
+  }
+
+  .consultation-wide-shell .consultation-tactic-palette-list::-webkit-scrollbar-thumb,
+  .consultation-wide-shell .consultation-builder-teams::-webkit-scrollbar-thumb {
+    background: rgba(148,163,184,.42);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+}
