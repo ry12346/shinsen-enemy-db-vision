@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.14";
+const APP_VERSION = "2.4.15";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
@@ -119,6 +119,7 @@ const state = {
   consultationTacticPaletteKinds: [],
   consultationTacticPaletteGrades: ["S"],
   consultationTacticPaletteSource: "owned",
+  consultationHideUsedTactics: false,
   consultationSwap: null,
   consultationExpandedTacticSlots: {},
   consultationMobileTacticTarget: null,
@@ -126,6 +127,14 @@ const state = {
   formationSupportName: "",
   formationSupportSavedAt: "",
   consultationLocalSavedAt: "",
+  consultationInventoryOpen: null,
+  consultationSubmittedAt: "",
+  formationSupportWorkspaceKey: "",
+  supportSync: null,
+  supportCloudDrafts: [],
+  supportCloudLinked: null,
+  supportCloudAccountId: null,
+  supportCloudError: "",
 };
 
 let consultationAnswersTimer = null;
@@ -1489,7 +1498,7 @@ async function navigate(view) {
   else if (view === "formation-consultation-create") renderFormationConsultationCreate();
   else if (view === "formation-consultation-detail") await renderFormationConsultationDetail();
   else if (view === "formation-consultation") await renderFormationConsultation();
-  else if (view === "formation-support-start") renderFormationSupportStart();
+  else if (view === "formation-support-start") await renderFormationSupportStart();
   else if (view === "formation-support-workspace") renderFormationSupportWorkspace();
   else if (view === "shared-formation") await renderSharedFormation();
   else if (view === "shared-formation-set") await renderSharedFormationSet();
@@ -3593,7 +3602,7 @@ function formationPickerListHtml() {
       const blockedByUsage = picker.kind === "tactic" && !selected && !startupDraft && usedIn.length >= maxTacticCopies(item);
       return `<div class="choice-option-row ${selected ? "selected" : ""} ${blockedByUsage ? "usage-blocked" : ""}">
         <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-formation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}" ${blockedByUsage ? "disabled" : ""}>
-          <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
+          <div class="choice-option-main"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong><span class="choice-selection-badge ${selectionLabel ? "" : "empty"}" ${selectionLabel ? "" : 'aria-hidden="true"'}>${escapeHtml(selectionLabel || (picker.kind === "general" ? "副将2" : "第2戦法"))}</span></div>
           ${picker.kind === "general"
             ? `<span>${Number(item.dupeCount || 0)}凸${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${usageText ? ` ・ ${escapeHtml(usageText)}` : ""}</span>`
             : `<span>${escapeHtml(tacticGradeLabel(item) || "ランク未確認")} ・ ${escapeHtml(consultationTacticKindLabel(item.kind))}${usageText ? ` ・ ${escapeHtml(usageText)}` : ""}</span>`}
@@ -3608,13 +3617,18 @@ function formationPickerSelectedSummaryHtml() {
   const picker = state.formationPicker;
   if (!picker) return "";
   const source = picker.kind === "general" ? (state.myInventory?.generals ?? []) : (state.myInventory?.tactics ?? []);
-  const labels = (picker.selectedIds ?? []).map((id, index) => {
-    const item = source.find((row) => row.qookkaId === id);
-    if (!item) return "";
-    const role = picker.kind === "general" ? formationMemberRole(index + 1) : (index === 0 ? "第1" : "第2");
-    return `<span><small>${escapeHtml(role)}</small><strong>${escapeHtml(item.name)}</strong></span>`;
-  }).filter(Boolean);
-  return labels.length ? `<div class="multi-choice-summary">${labels.join("")}</div>` : `<div class="multi-choice-summary empty">未選択</div>`;
+  return pickerSelectedSummaryHtml(picker, source);
+}
+
+function pickerSelectedSummaryHtml(picker, source) {
+  const general = picker.kind === "general";
+  const slots = Array.from({ length: general ? 3 : 2 }, (_, index) => {
+    const id = picker.selectedIds?.[index];
+    const item = (source ?? []).find((row) => row.qookkaId === id);
+    const role = general ? formationMemberRole(index + 1) : index === 0 ? "第1" : "第2";
+    return `<span class="picker-selection-slot ${item ? "selected" : "empty"}"><small>${escapeHtml(role)}</small><strong title="${escapeAttr(item?.name || "未選択")}">${escapeHtml(item?.name || "未選択")}</strong></span>`;
+  });
+  return `<div class="multi-choice-summary ${general ? "picker-general-summary" : "picker-tactic-summary"}">${slots.join("")}</div>`;
 }
 
 function formationPickerFiltersHtml() {
@@ -3654,7 +3668,7 @@ function formationPickerHtml() {
   const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-formation-picker"></div>
-    <section class="choice-sheet multi-choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle" aria-hidden="true"></div>
       <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
       ${formationPickerSelectedSummaryHtml()}
@@ -3667,14 +3681,34 @@ function formationPickerHtml() {
     </section>`;
 }
 
-function refreshFormationPickerOptions() {
+function refreshFormationPickerOptions({ selectionOnly = false } = {}) {
   const list = document.getElementById("formation-picker-list");
-  if (list) list.innerHTML = formationPickerListHtml();
+  if (selectionOnly) updatePickerSelectionDom(list, state.formationPicker, "toggle-formation-choice");
+  else if (list) list.innerHTML = formationPickerListHtml();
   const summary = document.querySelector(".multi-choice-summary");
   if (summary) {
     const wrapper = document.createElement("div");
     wrapper.innerHTML = formationPickerSelectedSummaryHtml();
     summary.replaceWith(wrapper.firstElementChild);
+  }
+}
+
+function updatePickerSelectionDom(list, picker, action) {
+  if (!list || !picker) return;
+  // 選択時には候補DOMを入れ替えない。スクロール・フォーカス・カード位置を保つ。
+  for (const button of list.querySelectorAll?.(`[data-action="${action}"]`) ?? []) {
+    const label = formationPickerSelectionLabel(picker, button.dataset.id);
+    const selected = Boolean(label);
+    button.classList.toggle("selected", selected);
+    button.classList.toggle("multi-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+    button.closest(".choice-option-row")?.classList.toggle("selected", selected);
+    const badge = button.querySelector(".choice-selection-badge");
+    if (badge) {
+      badge.textContent = label || (picker.kind === "general" ? "副将2" : "第2戦法");
+      badge.classList.toggle("empty", !selected);
+      if (selected) badge.removeAttribute("aria-hidden"); else badge.setAttribute("aria-hidden", "true");
+    }
   }
 }
 
@@ -3816,23 +3850,17 @@ function loadFormationSupportLocal() {
 
 function persistFormationSupportLocal() {
   if (!state.formationSupportMode || !state.sharedConsultation?.inventory || !state.consultationDraft) return;
+  state.formationSupportWorkspaceKey ||= `direct:${newConsultationRequestId()}`;
+  const payload = supportWorkspacePayload();
+  const savedAt = new Date().toISOString();
   try {
-    const savedAt = new Date().toISOString();
-    window.localStorage.setItem(FORMATION_SUPPORT_STORAGE_KEY, JSON.stringify({
-      name: state.formationSupportName || "",
-      inventory: state.sharedConsultation.inventory,
-      draft: state.consultationDraft,
-      paletteSearch: state.consultationTacticPaletteSearch || "",
-      paletteKinds: state.consultationTacticPaletteKinds ?? [],
-      paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
-      paletteSource: state.consultationTacticPaletteSource || "owned",
-      generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
-      savedAt,
-    }));
+    window.localStorage.setItem(FORMATION_SUPPORT_STORAGE_KEY, JSON.stringify({ ...payload,
+      workspaceKey: currentSupportWorkspaceKey(), sync: supportLocalSyncMetadata(), savedAt }));
     state.formationSupportSavedAt = savedAt;
   } catch {
     // localStorageが利用できない環境でも編成作業自体は継続する。
   }
+  queueSupportCloudSave(payload);
 }
 
 function clearFormationSupportLocal() {
@@ -3840,27 +3868,22 @@ function clearFormationSupportLocal() {
   state.formationSupportSavedAt = "";
 }
 
-function restoreFormationSupportLocal() {
-  const saved = loadFormationSupportLocal();
+function restoreFormationSupportLocal(saved = loadFormationSupportLocal()) {
   if (!saved) return false;
   state.formationSupportMode = true;
   state.formationSupportName = String(saved.name || "");
   state.formationSupportSavedAt = String(saved.savedAt || "");
+  state.formationSupportWorkspaceKey = /^direct:[a-f0-9-]{36}$/i.test(saved.workspaceKey || "") ? saved.workspaceKey : `direct:${newConsultationRequestId()}`;
   state.sharedConsultation = {
     title: state.formationSupportName ? `${state.formationSupportName}さんの編成` : "他人の編成",
     note: "",
     inventory: saved.inventory,
   };
   state.consultationDraft = saved.draft;
-  state.consultationTacticPaletteSearch = String(saved.paletteSearch || "");
-  state.consultationTacticPaletteKinds = Array.isArray(saved.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
-  state.consultationTacticPaletteGrades = Array.isArray(saved.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
-  state.consultationTacticPaletteSource = saved.paletteSource === "teachable" ? "teachable" : "owned";
-  state.consultationGeneralPickerFilters = saved.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : state.consultationGeneralPickerFilters;
+  applySupportWorkspaceSettings(saved);
   state.consultationPicker = null;
   state.consultationSwap = null;
   state.consultationExpandedTacticSlots = {};
-  state.consultationSubmitted = false;
   return true;
 }
 
@@ -3888,22 +3911,16 @@ function persistFormationConsultationLocal() {
   if (state.formationSupportMode || !state.consultationToken || !state.consultationDraft) return;
   const key = formationConsultationDraftStorageKey();
   if (!key) return;
+  const payload = supportWorkspacePayload();
+  const savedAt = new Date().toISOString();
   try {
-    const savedAt = new Date().toISOString();
-    window.localStorage.setItem(key, JSON.stringify({
-      draft: state.consultationDraft,
-      paletteSearch: state.consultationTacticPaletteSearch || "",
-      paletteKinds: state.consultationTacticPaletteKinds ?? [],
-      paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
-      paletteSource: state.consultationTacticPaletteSource || "owned",
-      generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
-      candidateGeneralIds: (state.sharedConsultation?.inventory?.generals ?? []).filter((general) => consultationGeneralCandidateEnabled(general)).map((general) => general.qookkaId),
-      savedAt,
-    }));
+    window.localStorage.setItem(key, JSON.stringify({ ...payload,
+      workspaceKey: currentSupportWorkspaceKey(), sync: supportLocalSyncMetadata(), savedAt }));
     state.consultationLocalSavedAt = savedAt;
   } catch {
     // localStorageが使えない環境では保存せず、そのまま作業を続ける。
   }
+  queueSupportCloudSave(payload);
 }
 
 function clearFormationConsultationLocal(token = state.consultationToken) {
@@ -3918,14 +3935,329 @@ function persistConsultationWorkspaceLocal() {
   else persistFormationConsultationLocal();
 }
 
-function renderFormationSupportStart() {
+function enemyDatabaseUrl() {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function currentSupportWorkspaceKey() {
+  return state.formationSupportMode ? state.formationSupportWorkspaceKey : state.consultationToken ? `consultation:${state.consultationToken}` : "";
+}
+
+function supportPayloadSignature(value) {
+  const ordered = (item) => Array.isArray(item) ? item.map(ordered) : item && typeof item === "object"
+    ? Object.fromEntries(Object.keys(item).sort().filter((key) => item[key] !== undefined).map((key) => [key, ordered(item[key])])) : item;
+  return JSON.stringify(ordered(value));
+}
+
+function supportWorkspacePayload() {
+  const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value && Object.prototype.hasOwnProperty.call(value, key)).map((key) => [key, value[key]]));
+  const draft = state.consultationDraft;
+  const payload = {
+    name: state.formationSupportMode ? state.formationSupportName || "" : "",
+    draft: { ...pick(draft, ["proposerName", "note", "isPublic", "requestId", "requestSignature"]),
+      formations: (draft?.formations ?? []).map((formation) => ({ ...pick(formation, ["name", "note", "troopType", "troopLevel"]),
+        members: (formation.members ?? []).map((member) => pick(member, ["slot", "generalQookkaId", "generalName", "tactic1QookkaId", "tactic1Name", "tactic2QookkaId", "tactic2Name", "dupeCount", "inherentTacticName"])) })) },
+    paletteSearch: state.consultationTacticPaletteSearch || "", paletteKinds: state.consultationTacticPaletteKinds ?? [],
+    paletteGrades: state.consultationTacticPaletteGrades ?? ["S"], paletteSource: state.consultationTacticPaletteSource || "owned",
+    hideUsedTactics: state.consultationHideUsedTactics === true,
+    generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
+    inventoryOpen: state.consultationInventoryOpen,
+    submitted: state.consultationSubmitted === true, submittedAt: state.consultationSubmittedAt || "",
+  };
+  if (state.formationSupportMode) {
+    const inventory = state.sharedConsultation?.inventory ?? { generals: [], tactics: [] };
+    payload.inventory = { generals: inventory.generals.map((row) => pick(row, ["qookkaId", "name", "inherentTacticName", "star", "cost", "faction", "level", "sourceOrder", "dupeCount", "supportCandidate", "favorite"])),
+      tactics: inventory.tactics.map((row) => pick(row, ["qookkaId", "name", "grade", "kind"])) };
+  } else {
+    payload.candidateGeneralIds = (state.sharedConsultation?.inventory?.generals ?? []).filter(consultationGeneralCandidateEnabled).map((row) => row.qookkaId);
+  }
+  // API呼出し中に編集しても、送信済みスナップショットを書き換えない。
+  return JSON.parse(JSON.stringify(payload));
+}
+
+function applySupportWorkspaceSettings(saved) {
+  state.consultationTacticPaletteSearch = String(saved?.paletteSearch || "");
+  state.consultationTacticPaletteKinds = Array.isArray(saved?.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
+  state.consultationTacticPaletteGrades = Array.isArray(saved?.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
+  state.consultationTacticPaletteSource = saved?.paletteSource === "teachable" ? "teachable" : "owned";
+  state.consultationHideUsedTactics = saved?.hideUsedTactics === true;
+  state.consultationGeneralPickerFilters = saved?.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : { star: "5", faction: "all", cost: "all" };
+  state.consultationInventoryOpen = typeof saved?.inventoryOpen === "boolean" ? saved.inventoryOpen : null;
+  state.consultationSubmitted = saved?.submitted === true;
+  state.consultationSubmittedAt = saved?.submittedAt || "";
+}
+
+function supportLocalSyncMetadata(context = state.supportSync) {
+  if (context?.key === currentSupportWorkspaceKey() && context.conflict) return context.localMetadata || null;
+  if (context?.key === currentSupportWorkspaceKey() && !context.accountId) return context.localMetadata || null;
+  return context?.key === currentSupportWorkspaceKey() && context.accountId
+    ? { accountId: context.accountId, revision: context.revision, baseSignature: context.baseSignature } : null;
+}
+
+function supportLocalStorageKey(context) {
+  return context.kind === "direct" ? FORMATION_SUPPORT_STORAGE_KEY : formationConsultationDraftStorageKey(context.key.slice("consultation:".length));
+}
+
+function updateSupportLocalSyncMetadata(context) {
+  try {
+    const key = supportLocalStorageKey(context);
+    const saved = JSON.parse(window.localStorage.getItem(key) || "null");
+    if (!saved || (saved.workspaceKey && saved.workspaceKey !== context.key)) return;
+    saved.sync = { accountId: context.accountId, revision: context.revision, baseSignature: context.baseSignature };
+    window.localStorage.setItem(key, JSON.stringify(saved));
+  } catch {}
+}
+
+function savedSupportPayload(saved) {
+  if (!saved) return null;
+  const { savedAt, sync, workspaceKey, ...payload } = saved;
+  return payload;
+}
+
+async function openSupportCloudWorkspace(key, localSaved, { preferRemote = false } = {}) {
+  const previous = state.supportSync;
+  if (previous?.timer) window.clearTimeout(previous.timer);
+  if (previous?.pending && !previous.error && !previous.conflict) void flushSupportCloudSave(previous);
+  const context = { key, kind: key.startsWith("direct:") ? "direct" : "consultation", linked: null, accountId: null,
+    revision: 0, baseSignature: "", pending: null, timer: null, promise: null, error: "", conflict: null, loading: true, updatedAt: "",
+    localMetadata: localSaved?.sync || null, title: "編成相談" };
+  state.supportSync = context;
+  try {
+    const response = await apiRequest("formation_support_draft_get", { workspaceKey: key });
+    if (state.supportSync !== context) return localSaved;
+    context.linked = response.linked === true;
+    state.supportCloudLinked = context.linked;
+    if (!context.linked) return localSaved;
+    context.accountId = response.accountId;
+    const remote = response.draft;
+    context.revision = remote?.revision ?? 0;
+    context.updatedAt = remote?.updatedAt || "";
+    context.baseSignature = remote?.payload ? supportPayloadSignature(remote.payload) : "";
+    const metadata = localSaved?.sync;
+    const localSignature = localSaved ? supportPayloadSignature(savedSupportPayload(localSaved)) : "";
+    const remoteSaved = remote?.payload ? { ...remote.payload, workspaceKey: key, savedAt: remote.updatedAt,
+      sync: { accountId: context.accountId, revision: context.revision, baseSignature: context.baseSignature } } : null;
+    if (localSaved && metadata?.accountId && metadata.accountId !== context.accountId) {
+      context.conflict = { remote, accountChanged: true };
+      return localSaved;
+    }
+    if (preferRemote || !localSaved) return remoteSaved;
+    if (remote && localSignature === context.baseSignature) return remoteSaved;
+    if (remote && (remote.deleted || (!metadata || metadata.revision !== context.revision) && localSignature !== metadata?.baseSignature)) {
+      context.conflict = { remote };
+      return localSaved;
+    }
+    if (remoteSaved && metadata?.revision !== context.revision) return remoteSaved;
+    return localSaved;
+  } catch (error) {
+    if (state.supportSync === context) context.error = error.message || "アカウントの下書きを取得できません。";
+    return localSaved;
+  } finally {
+    context.loading = false;
+    updateSupportSyncStatus();
+  }
+}
+
+function queueSupportCloudSave(payload = supportWorkspacePayload()) {
+  const context = state.supportSync;
+  if (!context || context.key !== currentSupportWorkspaceKey() || context.linked !== true || context.loading) return;
+  const signature = supportPayloadSignature(payload);
+  context.pending = !context.promise && signature === context.baseSignature ? null : payload;
+  context.title = state.sharedConsultation?.title || (context.kind === "direct" ? "他人の編成" : "編成相談");
+  if (context.timer) window.clearTimeout(context.timer);
+  if (context.pending && !context.error && !context.conflict) context.timer = window.setTimeout(() => void flushSupportCloudSave(context), 650);
+  updateSupportSyncStatus();
+}
+
+async function flushSupportCloudSave(context = state.supportSync) {
+  if (!context || context.linked !== true || context.loading || context.error || context.conflict) return false;
+  if (context.timer) { window.clearTimeout(context.timer); context.timer = null; }
+  if (context.promise) { await context.promise; return flushSupportCloudSave(context); }
+  if (!context.pending) return true;
+  const payload = context.pending;
+  const signature = supportPayloadSignature(payload);
+  const title = context.kind === "direct" ? payload.name ? `${payload.name}さんの編成` : "他人の編成" : context.title;
+  context.promise = (async () => {
+    try {
+      const response = await apiRequest("formation_support_draft_save", { workspaceKey: context.key,
+        accountId: context.accountId, expectedRevision: context.revision, title, payload });
+      if (response.accountId !== context.accountId) throw new Error("Discord連携が変わりました。端末の下書きは保持しています。");
+      context.revision = response.draft.revision;
+      context.updatedAt = response.draft.updatedAt;
+      context.baseSignature = signature;
+      if (context.pending && supportPayloadSignature(context.pending) === signature) context.pending = null;
+      updateSupportLocalSyncMetadata(context);
+      return true;
+    } catch (error) {
+      if (error.code === "SUPPORT_DRAFT_CONFLICT") {
+        context.localMetadata ||= { accountId: context.accountId, revision: context.revision, baseSignature: context.baseSignature };
+        try {
+          const response = await apiRequest("formation_support_draft_get", { workspaceKey: context.key });
+          context.conflict = { remote: response.draft, accountChanged: response.accountId !== context.accountId };
+        } catch { context.error = "別端末の更新を取得できません。端末の下書きは保持しています。"; }
+      } else {
+        context.error = error.message || "アカウントへの保存に失敗しました。";
+      }
+      return false;
+    } finally {
+      context.promise = null;
+      updateSupportSyncStatus();
+    }
+  })();
+  updateSupportSyncStatus();
+  const saved = await context.promise;
+  if (saved && context.pending) return flushSupportCloudSave(context);
+  return saved;
+}
+
+function supportSyncStatusHtml() {
+  const context = state.supportSync;
+  if (!context || context.key !== currentSupportWorkspaceKey() || context.loading) return `<span>端末に自動保存 · アカウントを確認中…</span>`;
+  if (context.conflict) return `<div><strong>${context.conflict.accountChanged ? "Discord連携が変わりました" : context.conflict.remote?.deleted ? "別端末で削除されています" : "別端末で更新されています"}</strong><small>この端末の内容は残しています。保存する内容を選んでください。</small></div><div class="button-row"><button type="button" class="secondary-button compact-button" data-action="support-use-remote">アカウントの内容を開く</button><button type="button" class="secondary-button compact-button" data-action="support-use-local">この端末の内容を保存</button></div>`;
+  if (context.error) return `<div><strong>端末の下書きは保持しています</strong><small>${escapeHtml(context.error)}</small></div><button type="button" class="secondary-button compact-button" data-action="support-retry-sync">再接続</button>`;
+  if (!context.linked) return `<div><span>この端末に自動保存</span><small>Discord連携すると別端末でも開けます。</small></div><button type="button" class="text-button" data-action="navigate" data-view="intel">Discord連携</button>`;
+  const status = context.promise ? "アカウントへ保存中…" : context.pending ? "端末に保存済み · アカウントへの保存待ち" : context.updatedAt ? "Discordアカウントに保存済み" : "Discord連携済み · 入力すると自動保存";
+  return `<div><span>${status}</span><small>${context.updatedAt ? `${escapeHtml(formatDateTime(context.updatedAt))} · 同じDiscordで別端末から再開できます` : "他人の編成を組む → アカウントに保存した編成から再開できます"}</small></div>`;
+}
+
+function supportSyncNoticeHtml() {
+  return `<div id="support-sync-status" class="consultation-autosave-note support-sync-status" role="status">${supportSyncStatusHtml()}</div>`;
+}
+
+function updateSupportSyncStatus() {
+  if (!["formation-consultation", "formation-support-workspace"].includes(state.view)) return;
+  const panel = document.getElementById("support-sync-status");
+  if (panel) panel.innerHTML = supportSyncStatusHtml();
+}
+
+async function resolveSupportSync(useRemote) {
+  const context = state.supportSync;
+  if (!context || context.key !== currentSupportWorkspaceKey()) return;
+  if (context.promise) await context.promise;
+  const response = await apiRequest("formation_support_draft_get", { workspaceKey: context.key });
+  if (state.supportSync !== context) return;
+  if (!response.linked) { context.linked = false; context.error = ""; context.conflict = null; updateSupportSyncStatus(); return; }
+  const remote = response.draft;
+  context.linked = true; context.accountId = response.accountId; context.revision = remote?.revision ?? 0;
+  context.baseSignature = remote?.payload ? supportPayloadSignature(remote.payload) : "";
+  context.updatedAt = remote?.updatedAt || ""; context.conflict = null; context.error = ""; context.localMetadata = null;
+  if (useRemote) {
+    if (!remote?.payload) {
+      if (context.kind === "direct") clearFormationSupportLocal(); else clearFormationConsultationLocal();
+      context.pending = null;
+      await navigate("formation-support-start");
+      return;
+    }
+    if (context.kind === "direct") restoreFormationSupportLocal({ ...remote.payload, workspaceKey: context.key, savedAt: remote.updatedAt });
+    else {
+      state.consultationDraft = remote.payload.draft;
+      initializeFormalConsultationCandidates(remote.payload.candidateGeneralIds);
+      applySupportWorkspaceSettings(remote.payload);
+    }
+    context.pending = null;
+    persistConsultationWorkspaceLocal();
+    renderFormationConsultationBody();
+  } else {
+    persistConsultationWorkspaceLocal();
+    await flushSupportCloudSave(context);
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) void flushSupportCloudSave();
+});
+window.addEventListener("pagehide", () => { void flushSupportCloudSave(); });
+
+async function retrySupportCloudSync() {
+  const key = currentSupportWorkspaceKey();
+  persistConsultationWorkspaceLocal();
+  const localSaved = state.formationSupportMode ? loadFormationSupportLocal() : loadFormationConsultationLocal();
+  const saved = await openSupportCloudWorkspace(key, localSaved);
+  if (currentSupportWorkspaceKey() !== key || state.supportSync?.key !== key) return;
+  if (saved) {
+    if (state.formationSupportMode) restoreFormationSupportLocal(saved);
+    else { state.consultationDraft = saved.draft; initializeFormalConsultationCandidates(saved.candidateGeneralIds); applySupportWorkspaceSettings(saved); }
+  }
+  persistConsultationWorkspaceLocal();
+  renderFormationConsultationBody();
+  await flushSupportCloudSave();
+}
+
+async function openSavedSupportCloudDraft(key) {
+  if (key.startsWith("consultation:")) {
+    state.formationSupportMode = false;
+    state.consultationToken = key.slice("consultation:".length);
+    state.sharedConsultation = null; state.consultationDraft = null; state.consultationPicker = null;
+    await navigate("formation-consultation");
+    return;
+  }
+  if (!/^direct:[a-f0-9-]{36}$/i.test(key)) return;
+  const local = loadFormationSupportLocal();
+  const saved = await openSupportCloudWorkspace(key, local?.workspaceKey === key ? local : null);
+  if (state.supportSync?.key !== key || state.view !== "formation-support-start") return;
+  if (!saved || !restoreFormationSupportLocal({ ...saved, workspaceKey: key })) throw new Error("保存した編成を開けません。アカウントと一覧を確認してください。");
+  state.consultationToken = "";
+  persistFormationSupportLocal();
+  await navigate("formation-support-workspace");
+}
+
+async function deleteSavedSupportCloudDraft(key) {
+  const item = state.supportCloudDrafts.find((draft) => draft.workspaceKey === key);
+  if (!item || !window.confirm(`「${item.title || "他人の編成"}」をアカウントの保存一覧から削除しますか？送信した回答は削除されません。`)) return;
+  const context = state.supportSync?.key === key ? state.supportSync : null;
+  const listedAccountId = state.supportCloudAccountId;
+  if (context?.timer) window.clearTimeout(context.timer);
+  if (context?.promise) await context.promise;
+  const account = await apiRequest("formation_support_draft_get", { workspaceKey: key });
+  if (!account.linked) throw new Error("Discord連携を確認してください。");
+  if (account.accountId !== listedAccountId) throw new Error("Discord連携が変わりました。一覧を更新してから削除してください。");
+  // 一覧を表示してから変更された内容を、削除操作で消さない。
+  const response = await apiRequest("formation_support_draft_delete", { workspaceKey: key,
+    accountId: listedAccountId, expectedRevision: item.revision });
+  if (context) { context.pending = null; context.conflict = { remote: { ...response.draft, payload: null } }; }
+  if (key.startsWith("consultation:")) clearFormationConsultationLocal(key.slice("consultation:".length));
+  else if (loadFormationSupportLocal()?.workspaceKey === key) clearFormationSupportLocal();
+  await renderFormationSupportStart();
+}
+
+function supportCloudDraftListHtml() {
+  if (state.supportCloudError) return `<div class="notice warning">${escapeHtml(state.supportCloudError)}<br><button type="button" class="text-button" data-action="refresh-support-cloud-list">再読み込み</button></div>`;
+  if (state.supportCloudLinked === null) return `<p class="muted">アカウントの保存を確認中…</p>`;
+  if (!state.supportCloudLinked) return `<p class="muted">Discord連携すると、他人の編成の下書きを別端末でも参照できます。</p><button type="button" class="secondary-button compact-button" data-action="navigate" data-view="intel">Discord連携へ</button>`;
+  const drafts = state.supportCloudDrafts ?? [];
+  return `<p class="muted">同じDiscordで連携した端末から開けます。この保存は自分だけに表示されます。</p>${drafts.length ? `<div class="support-cloud-draft-list">${drafts.map((draft) => `<div class="support-cloud-draft-row"><div><strong>${escapeHtml(draft.title || "他人の編成")}</strong><small>${draft.kind === "consultation" ? "編成相談URL" : "Qookkaからの編成支援"} · ${escapeHtml(formatDateTime(draft.updatedAt))}</small></div><div class="button-row"><button type="button" class="primary-button compact-button" data-action="open-support-cloud-draft" data-key="${escapeAttr(draft.workspaceKey)}">開く</button><button type="button" class="text-button" data-action="delete-support-cloud-draft" data-key="${escapeAttr(draft.workspaceKey)}">削除</button></div></div>`).join("")}</div>` : `<p class="muted">アカウントに保存した編成はまだありません。</p>`}<button type="button" class="text-button" data-action="refresh-support-cloud-list">一覧を更新</button>`;
+}
+
+async function refreshSupportCloudDraftList() {
+  const context = state.supportSync;
+  if (context?.pending && !context.error && !context.conflict) await flushSupportCloudSave(context);
+  try {
+    const response = await apiRequest("formation_support_drafts");
+    if (state.view !== "formation-support-start") return;
+    state.supportCloudDrafts = response.drafts ?? [];
+    state.supportCloudLinked = response.linked === true;
+    state.supportCloudAccountId = response.accountId || null;
+    state.supportCloudError = "";
+  } catch (error) {
+    if (state.view !== "formation-support-start") return;
+    state.supportCloudError = error.message || "アカウントの保存を確認できません。端末の下書きは利用できます。";
+  }
+  const panel = document.getElementById("support-cloud-list");
+  if (state.view === "formation-support-start" && panel) panel.innerHTML = supportCloudDraftListHtml();
+}
+
+async function renderFormationSupportStart() {
   const saved = loadFormationSupportLocal();
   app.innerHTML = pageHtml({
     title: "他人の編成を組む",
     subtitle: "相談URLまたはQookka共有URLから開始",
     content: `
       <div class="page-content formation-support-start-page">
-        ${saved ? `<div class="card draft-resume-card"><div><strong>編成支援の下書きがあります</strong><small>${saved.savedAt ? `自動保存 ${escapeHtml(formatDateTime(saved.savedAt))}` : ""}</small></div><div class="button-row"><button type="button" class="primary-button compact-button" data-action="resume-formation-support">続きから編集</button><button type="button" class="text-button" data-action="discard-formation-support">破棄</button></div></div>` : ""}
+        ${saved ? `<div class="card draft-resume-card"><div><strong>この端末の編成支援の下書き</strong><small>${saved.savedAt ? `自動保存 ${escapeHtml(formatDateTime(saved.savedAt))}` : ""}</small></div><div class="button-row"><button type="button" class="primary-button compact-button" data-action="resume-formation-support">続きから編集</button><button type="button" class="text-button" data-action="discard-formation-support">端末から削除</button></div></div>` : ""}
+        <section class="card form-stack"><strong>アカウントに保存した編成</strong><div id="support-cloud-list">${supportCloudDraftListHtml()}</div></section>
         <section class="card form-stack formation-support-route-card">
           <div><strong>相談URLから組む</strong><p class="muted">相手がQookka同期と凸設定を済ませて作成した編成相談URLを開きます。</p></div>
           <form class="form-stack" data-form="open-formation-consultation-url">
@@ -3947,6 +4279,7 @@ function renderFormationSupportStart() {
     backAction: "back-to-formations",
     showNav: false,
   });
+  await refreshSupportCloudDraftList();
 }
 
 function renderFormationSupportWorkspace() {
@@ -4238,8 +4571,33 @@ function consultationGeneralCandidateEnabled(general) {
 
 function consultationCandidateCheckboxHtml(general) {
   const selected = consultationGeneralCandidateEnabled(general);
-  return `<label class="consultation-candidate-check"><input type="checkbox" data-consultation-candidate-id="${escapeAttr(general?.qookkaId || "")}" ${selected ? "checked" : ""} /><span>武将選択に表示</span></label>`;
+  return `<span class="consultation-candidate-check"><input type="checkbox" aria-label="${escapeAttr(general?.name || "武将")}を武将選択に表示" data-consultation-candidate-id="${escapeAttr(general?.qookkaId || "")}" ${selected ? "checked" : ""} /><span aria-hidden="true">候補</span></span>`;
 }
+
+function captureConsultationInventoryState() {
+  const details = document.querySelector(".consultation-inventory-card");
+  if (details) state.consultationInventoryOpen = details.open;
+}
+
+function updateConsultationCandidateDisplay() {
+  const inventory = state.sharedConsultation?.inventory ?? { generals: [] };
+  const selectedIds = new Set(inventory.generals.filter(consultationGeneralCandidateEnabled).map((row) => String(row.qookkaId)));
+  document.querySelectorAll("[data-consultation-candidate-id]").forEach((input) => {
+    input.checked = selectedIds.has(String(input.dataset.consultationCandidateId));
+    input.closest(".consultation-general-chip")?.classList.toggle("candidate-selected", input.checked);
+  });
+  const summary = document.querySelector(".consultation-inventory-card > summary span");
+  if (summary) summary.textContent = `武将選択 ${selectedIds.size}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名`;
+  const count = document.querySelector(".consultation-candidate-toolbar small");
+  if (count) count.textContent = `${selectedIds.size} / ${inventory.generals.length}名`;
+  if (state.consultationPicker?.kind === "general") refreshConsultationPickerOptions();
+}
+
+document.addEventListener("toggle", (event) => {
+  if (!event.target?.classList?.contains("consultation-inventory-card")) return;
+  state.consultationInventoryOpen = event.target.open;
+  if (state.consultationDraft && ["formation-consultation", "formation-support-workspace"].includes(state.view)) persistConsultationWorkspaceLocal();
+}, true);
 
 function setConsultationCandidateVisibility(visible) {
   for (const general of state.sharedConsultation?.inventory?.generals ?? []) general.supportCandidate = Boolean(visible);
@@ -4303,12 +4661,12 @@ function consultationInventoryHtml() {
           <div class="consultation-general-chip-list">
             ${factionGroups.get(faction).map((general) => state.formationSupportMode
               ? `<div class="consultation-general-chip support-general-chip ${consultationGeneralCandidateEnabled(general) ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${supportCandidateButtonHtml(general)}</div>${supportDupeControlHtml(general)}</div>`
-              : `<div class="consultation-general-chip consultation-formal-general-chip ${consultationGeneralCandidateEnabled(general) ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${consultationCandidateCheckboxHtml(general)}</div></div>`).join("")}
+              : `<label class="consultation-general-chip consultation-formal-general-chip ${consultationGeneralCandidateEnabled(general) ? "candidate-selected" : ""}"><span class="support-general-chip-head"><span class="consultation-candidate-general-name"><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></span>${consultationCandidateCheckboxHtml(general)}</span></label>`).join("")}
           </div>
         </section>`).join("")
     : `<div class="notice subtle">★5武将の分類情報を取得できませんでした。編成作成では全所持武将から選択できます。</div>`;
 
-  const openInventory = state.formationSupportMode || !isConsultationMobileViewport();
+  const openInventory = state.consultationInventoryOpen ?? (state.formationSupportMode || !isConsultationMobileViewport());
   return `
     <details class="card consultation-inventory-card" ${openInventory ? "open" : ""}>
       <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>武将選択 ${supportCandidateCount}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
@@ -4386,7 +4744,7 @@ function consultationPickerListHtml() {
     const selected = selectedIds.includes(item.qookkaId);
     return `
     <button type="button" class="choice-option ${selected ? "selected multi-selected" : ""}" data-action="toggle-consultation-choice" data-id="${escapeAttr(item.qookkaId)}" data-name="${escapeAttr(item.name)}" aria-pressed="${selected ? "true" : "false"}">
-      <div class="choice-option-main"><strong>${escapeHtml(item.name)}</strong>${selectionLabel ? `<span class="choice-selection-badge">${escapeHtml(selectionLabel)}</span>` : ""}</div>
+      <div class="choice-option-main"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong><span class="choice-selection-badge ${selectionLabel ? "" : "empty"}" ${selectionLabel ? "" : 'aria-hidden="true"'}>${escapeHtml(selectionLabel || (picker?.kind === "general" ? "副将2" : "第2戦法"))}</span></div>
       ${picker?.kind === "general"
         ? `<span>${escapeHtml(consultationDupeText(item))}${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>`
         : `<span>${item.grade ? `${Number(item.grade) === 5 ? "S" : `Grade${Number(item.grade)}`} ・ ` : ""}${escapeHtml(consultationTacticKindLabel(item.kind))}</span>`}
@@ -4419,13 +4777,7 @@ function consultationPickerSelectedSummaryHtml() {
   const inventory = state.sharedConsultation?.inventory;
   if (!picker || !inventory) return "";
   const source = picker.kind === "general" ? inventory.generals : inventory.tactics;
-  const labels = (picker.selectedIds ?? []).map((id, index) => {
-    const item = source.find((row) => row.qookkaId === id);
-    if (!item) return "";
-    const role = picker.kind === "general" ? formationMemberRole(index + 1) : (index === 0 ? "第1" : "第2");
-    return `<span><small>${escapeHtml(role)}</small><strong>${escapeHtml(item.name)}</strong></span>`;
-  }).filter(Boolean);
-  return labels.length ? `<div class="multi-choice-summary">${labels.join("")}</div>` : `<div class="multi-choice-summary empty">未選択</div>`;
+  return pickerSelectedSummaryHtml(picker, source);
 }
 
 function consultationPickerHtml() {
@@ -4435,7 +4787,7 @@ function consultationPickerHtml() {
   const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-consultation-picker"></div>
-    <section class="choice-sheet multi-choice-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle"></div>
       <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-consultation-picker">×</button></div>
       ${consultationPickerSelectedSummaryHtml()}
@@ -4445,9 +4797,10 @@ function consultationPickerHtml() {
     </section>`;
 }
 
-function refreshConsultationPickerOptions() {
+function refreshConsultationPickerOptions({ selectionOnly = false } = {}) {
   const list = document.getElementById("consultation-picker-list");
-  if (list) list.innerHTML = consultationPickerListHtml();
+  if (selectionOnly) updatePickerSelectionDom(list, state.consultationPicker, "toggle-consultation-choice");
+  else if (list) list.innerHTML = consultationPickerListHtml();
   const summary = document.querySelector(".multi-choice-summary");
   if (summary) {
     const wrapper = document.createElement("div");
@@ -4615,6 +4968,7 @@ function consultationTacticPaletteItems() {
   const gradeFilters = state.consultationTacticPaletteGrades ?? ["S"];
   const kindFilters = state.consultationTacticPaletteKinds ?? [];
   return tactics.filter((tactic) => {
+    if (state.consultationHideUsedTactics && consultationTacticUsageCount(tactic.qookkaId || "", tactic.name || "") > 0) return false;
     const grade = tacticGradeLabel(tactic);
     const kind = consultationTacticKindLabel(tactic.kind);
     if (gradeFilters.length && !gradeFilters.includes(grade)) return false;
@@ -4658,7 +5012,7 @@ function consultationTacticPaletteHtml() {
       <button type="button" class="consultation-palette-source-tab ${!teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="owned" aria-pressed="${!teachableMode ? "true" : "false"}">所持戦法 <b>${ownedTactics.length}</b></button>
       <button type="button" class="consultation-palette-source-tab ${teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="teachable" aria-pressed="${teachableMode ? "true" : "false"}">伝授 <b>${teachableTactics.length}</b></button>
     </div>
-    <div class="consultation-palette-search-row"><input id="consultation-tactic-palette-search" class="choice-search consultation-palette-search" type="search" placeholder="${teachableMode ? "伝授戦法・伝授元で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" /></div>
+    <div class="consultation-palette-search-row"><input id="consultation-tactic-palette-search" class="choice-search consultation-palette-search" type="search" placeholder="${teachableMode ? "伝授戦法・伝授元で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" />${consultationHideUsedTacticsCheckboxHtml()}</div>
     <details class="consultation-palette-filters">
       <summary>絞り込み <span>${escapeHtml(gradeLabel)} / ${escapeHtml(kindLabel)}</span></summary>
       <div class="consultation-palette-filter-body">
@@ -4668,6 +5022,10 @@ function consultationTacticPaletteHtml() {
     </details>
     <div id="consultation-tactic-palette-list" class="consultation-tactic-palette-list">${consultationTacticPaletteListHtml()}</div>
   </aside>`;
+}
+
+function consultationHideUsedTacticsCheckboxHtml() {
+  return `<label class="consultation-hide-used-check"><input type="checkbox" data-hide-used-consultation-tactics ${state.consultationHideUsedTactics ? "checked" : ""} /><span>使用戦法は表示しない</span></label>`;
 }
 
 function consultationMobileTacticTargetInfo() {
@@ -4729,6 +5087,7 @@ function consultationMobileTacticPickerHtml() {
       </div>
       <div class="consultation-mobile-tactic-tools">
         <input id="consultation-mobile-tactic-search" class="choice-search" type="search" autocomplete="off" placeholder="${teachableMode ? "伝授戦法・伝授元で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" />
+        ${consultationHideUsedTacticsCheckboxHtml()}
         <div class="consultation-mobile-filter-row"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
         <div class="consultation-mobile-filter-row"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
       </div>
@@ -4854,16 +5213,17 @@ function renderFormationSupportDirectBody() {
   const draft = state.consultationDraft;
   const inventory = consultation.inventory ?? { generals: [], tactics: [], lastImport: null };
   const unknownStar5 = (inventory.generals ?? []).filter((row) => Number(row.star) === 5 && (row.dupeCount === null || row.dupeCount === undefined)).length;
-  persistFormationSupportLocal();
+  captureConsultationInventoryState();
   app.innerHTML = pageHtml({
     title: state.formationSupportName ? `${state.formationSupportName}さんの編成` : "他人の編成を組む",
     subtitle: "Qookkaの手持ちを一時利用",
     content: `
       <div class="page-content consultation-public-page formation-support-workspace">
         <div class="card formation-support-toolbar">
-          <div><strong>この手持ちはあなたのマイ編成とは別です</strong><small>この端末に下書きを自動保存します。</small></div>
+          <div><strong>この手持ちはあなたのマイ編成とは別です</strong><small>他人の編成を組む画面から、保存した内容を再開できます。</small></div>
           <div class="button-row"><button type="button" class="secondary-button compact-button" data-action="copy-formation-support-result">編成案をコピー</button><button type="button" class="text-button" data-action="back-to-formation-support-start">別の相談を開く</button></div>
         </div>
+        ${supportSyncNoticeHtml()}
         ${unknownStar5 ? `<div class="notice warning">★5武将で凸未入力が${unknownStar5}名あります。編成に使う武将だけ入力しても進められます。</div>` : `<div class="notice success">★5武将の凸は入力済みです。</div>`}
         <div class="notice info">下の所持武将で<strong>編成候補</strong>を付けた武将だけ、編成作成時の武将候補に表示します。</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span></div>
@@ -4873,7 +5233,7 @@ function renderFormationSupportDirectBody() {
         <div class="form-stack">
           <div class="card form-stack"><label class="field"><span>編成案全体のメモ（任意）</span><textarea maxlength="1000" rows="3" data-consultation-path="note" placeholder="運用順、狙いなど">${escapeHtml(draft.note || "")}</textarea></label></div>
           <div class="consultation-builder-layout">
-            <div class="consultation-builder-teams">
+            <div class="consultation-builder-teams" tabindex="0" role="region" aria-label="編成案の部隊一覧">
               <div class="consultation-team-list">${draft.formations.map(consultationProposalFormationEditorHtml).join("")}</div>
               <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 10 ? "disabled" : ""}>＋ 部隊を追加</button>
             </div>
@@ -5049,13 +5409,36 @@ async function submitConsultationAnswer(formData) {
     const proposal = prepareConsultationSubmission(draft);
     // 送信IDと最新の入力を送信前に保存。応答が失われても同じIDで再送する。
     persistFormationConsultationLocal();
-    await apiRequest("formation_consultation_submit", { token, proposal });
-    clearFormationConsultationLocal(token);
+    const context = state.supportSync?.key === `consultation:${token}` ? state.supportSync : null;
+    const savedPayload = supportWorkspacePayload();
+    const generalMap = new Map((state.sharedConsultation?.inventory?.generals ?? []).map((row) => [row.qookkaId, row]));
+    for (const formation of savedPayload.draft.formations) for (const member of formation.members) {
+      const general = generalMap.get(member.generalQookkaId);
+      member.dupeCount = general?.dupeCount ?? null;
+      member.inherentTacticName = general?.inherentTacticName || "";
+    }
+    if (context) await flushSupportCloudSave(context);
+    const response = await apiRequest("formation_consultation_submit", { token, proposal });
+    savedPayload.submitted = true;
+    savedPayload.submittedAt = response.proposal?.createdAt || new Date().toISOString();
     if (consultationStillOpen(token) && state.consultationDraft === draft) {
       state.consultationSubmitted = true;
+      state.consultationSubmittedAt = savedPayload.submittedAt;
+      state.consultationDraft = savedPayload.draft;
       state.consultationPicker = null;
+      persistFormationConsultationLocal();
+      if (context) await flushSupportCloudSave(context);
       renderFormationConsultationBody();
       await refreshConsultationPublicAnswers({ manual: true });
+    } else {
+      // 送信待ちの間に別画面へ移っても、対象の相談だけを送信済みにする。
+      const key = formationConsultationDraftStorageKey(token);
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(key) || "null");
+        if (saved?.draft?.requestId === proposal.requestId) window.localStorage.setItem(key,
+          JSON.stringify({ ...saved, ...savedPayload, savedAt: new Date().toISOString() }));
+      } catch {}
+      if (context) { context.pending = savedPayload; await flushSupportCloudSave(context); }
     }
     return true;
   } catch (error) {
@@ -5074,6 +5457,7 @@ async function submitConsultationAnswer(formData) {
 }
 
 function renderFormationConsultationBody() {
+  captureConsultationInventoryState();
   if (state.formationSupportMode) {
     renderFormationSupportDirectBody();
     return;
@@ -5093,7 +5477,7 @@ function renderFormationConsultationBody() {
     app.innerHTML = pageHtml({
       title: consultation.title || "編成相談",
       subtitle: "提案を送信しました",
-      content: `<div class="page-content consultation-public-page"><div class="card consultation-success"><div class="success-mark">✓</div><h2>提案を送信しました</h2><p>${state.consultationDraft?.isPublic ? "この回答は相談URLから参考として閲覧できます。" : "この回答は相談者だけに表示されます。"}</p><p>相談者が「採用」するとマイ編成にコピーされます。</p>${consultation.isActive === false ? "" : `<button type="button" class="secondary-button" data-action="new-consultation-proposal">別の案を送る</button>`}</div>${answers}</div>`,
+      content: `<div class="page-content consultation-public-page"><div class="card consultation-success"><div class="success-mark">✓</div><h2>提案を送信しました</h2><p>${state.consultationDraft?.isPublic ? "この回答は相談URLから参考として閲覧できます。" : "この回答は相談者だけに表示されます。"}</p><p>相談者が「採用」するとマイ編成にコピーされます。</p><a class="secondary-button" href="${escapeAttr(enemyDatabaseUrl())}">敵部隊DBへ</a></div>${supportSyncNoticeHtml()}<div class="section-heading"><h2>あなたが送信した回答</h2></div>${consultationProposalHtml({ ...state.consultationDraft, id: "saved-own-answer", createdAt: state.consultationSubmittedAt }, { readOnly: true, inventory: consultation.inventory })}${answers}</div>`,
       showNav: false,
     });
     return;
@@ -5111,7 +5495,7 @@ function renderFormationConsultationBody() {
         <div id="consultation-availability"></div>
         <a id="consultation-answer-link" class="consultation-answer-link" href="#consultation-public-answers">参考回答を読む（${consultation.proposals?.length || 0}件）</a>
         <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。上の所持武将一覧で、武将選択に出す武将を絞れます。戦法は各武将の第1・第2枠から割り当てます。PCでは戦法パレットからドラッグもできます。</div>
-        <div class="consultation-autosave-note"><span>この端末に自動保存</span>${state.consultationLocalSavedAt ? `<small>最終保存 ${escapeHtml(formatDateTime(state.consultationLocalSavedAt))}</small>` : `<small>入力すると自動保存されます</small>`}</div>
+        ${supportSyncNoticeHtml()}
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
         <div class="section-heading" id="consultation-builder-start"><h2>武将を組む</h2><span>最大10部隊</span></div>
@@ -5124,7 +5508,7 @@ function renderFormationConsultationBody() {
             <label class="consultation-public-consent"><input type="checkbox" name="isPublic" data-consultation-path="isPublic" ${draft.isPublic === true ? "checked" : ""} /><span><strong>相談URLに参考回答として表示する</strong><small>このURLを開ける人に、提案者名・メモ・編成が表示されます。チェックを外すと相談者だけに送ります。相談者は後から公開範囲を変更できます。</small></span></label>
           </div>
           <div class="consultation-builder-layout">
-            <div class="consultation-builder-teams">
+            <div class="consultation-builder-teams" tabindex="0" role="region" aria-label="編成案の部隊一覧">
               <div class="consultation-team-list">${draft.formations.map(consultationProposalFormationEditorHtml).join("")}</div>
               <button type="button" class="secondary-button add-consultation-formation" data-action="add-consultation-formation" ${draft.formations.length >= 10 ? "disabled" : ""}>＋ 部隊を追加</button>
             </div>
@@ -5170,17 +5554,14 @@ async function renderFormationConsultation() {
     const response = await apiRequest("shared_formation_consultation", { token });
     if (!consultationStillOpen(token)) return;
     state.sharedConsultation = response.consultation;
-    const saved = loadFormationConsultationLocal(state.consultationToken);
+    const localSaved = loadFormationConsultationLocal(token);
+    const saved = await openSupportCloudWorkspace(`consultation:${token}`, localSaved);
+    if (!consultationStillOpen(token)) return;
     initializeFormalConsultationCandidates(saved?.candidateGeneralIds);
     state.consultationDraft = saved?.draft ?? newConsultationProposalDraft();
     state.consultationLocalSavedAt = saved?.savedAt || "";
-    if (saved) {
-      state.consultationTacticPaletteSearch = String(saved.paletteSearch || "");
-      state.consultationTacticPaletteKinds = Array.isArray(saved.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
-      state.consultationTacticPaletteGrades = Array.isArray(saved.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
-      state.consultationTacticPaletteSource = saved.paletteSource === "teachable" ? "teachable" : "owned";
-      state.consultationGeneralPickerFilters = saved.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : state.consultationGeneralPickerFilters;
-    }
+    applySupportWorkspaceSettings(saved);
+    if (saved) persistFormationConsultationLocal();
     renderFormationConsultationBody();
     startConsultationAnswersPolling();
   } catch (error) {
@@ -6137,6 +6518,13 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target?.hasAttribute?.("data-hide-used-consultation-tactics")) {
+    state.consultationHideUsedTactics = Boolean(target.checked);
+    document.querySelectorAll("[data-hide-used-consultation-tactics]").forEach((checkbox) => { checkbox.checked = state.consultationHideUsedTactics; });
+    persistConsultationWorkspaceLocal();
+    refreshConsultationTacticPaletteList();
+    return;
+  }
   if (target?.dataset?.consultationPath && state.consultationDraft) {
     state.consultationDraft[target.dataset.consultationPath] = target.type === "checkbox" ? target.checked : target.value;
     persistConsultationWorkspaceLocal();
@@ -6148,16 +6536,8 @@ document.addEventListener("change", async (event) => {
     if (general) {
       general.supportCandidate = Boolean(target.checked);
       persistConsultationWorkspaceLocal();
-      const chip = target.closest(".consultation-general-chip");
-      chip?.classList.toggle("candidate-selected", general.supportCandidate);
-      const summary = document.querySelector(".consultation-inventory-card > summary span");
-      if (summary) {
-        const inventory = state.sharedConsultation?.inventory ?? { generals: [] };
-        const count = (inventory.generals ?? []).filter((row) => consultationGeneralCandidateEnabled(row)).length;
-        summary.textContent = `武将選択 ${count}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名`;
-        const toolbarCount = document.querySelector(".consultation-candidate-toolbar small");
-        if (toolbarCount) toolbarCount.textContent = `${count} / ${inventory.generals.length}名`;
-      }
+      target.closest(".consultation-general-chip")?.classList.toggle("candidate-selected", general.supportCandidate);
+      updateConsultationCandidateDisplay();
     }
     return;
   }
@@ -6256,6 +6636,7 @@ document.addEventListener("submit", async (event) => {
       const name = String(formData.get("name") ?? "").trim();
       state.formationSupportMode = true;
       state.formationSupportName = name;
+      state.formationSupportWorkspaceKey = `direct:${newConsultationRequestId()}`;
       state.consultationToken = "";
       for (const general of response.inventory?.generals ?? []) general.supportCandidate = false;
       state.sharedConsultation = {
@@ -6269,10 +6650,14 @@ document.addEventListener("submit", async (event) => {
       state.consultationTacticPaletteKinds = [];
       state.consultationTacticPaletteGrades = ["S"];
       state.consultationTacticPaletteSource = "owned";
+      state.consultationHideUsedTactics = false;
       state.consultationSwap = null;
       state.consultationExpandedTacticSlots = {};
       state.consultationMobileTacticTarget = null;
       state.consultationSubmitted = false;
+      state.consultationSubmittedAt = "";
+      state.consultationInventoryOpen = null;
+      await openSupportCloudWorkspace(state.formationSupportWorkspaceKey, null);
       persistFormationSupportLocal();
       await navigate("formation-support-workspace");
     } catch (error) {
@@ -6467,18 +6852,40 @@ document.addEventListener("click", async (event) => {
     await navigate("formation-support-start");
     return;
   }
+  if (["refresh-support-cloud-list", "open-support-cloud-draft", "delete-support-cloud-draft", "support-use-remote", "support-use-local", "support-retry-sync"].includes(action)) {
+    button.disabled = true;
+    try {
+      if (action === "refresh-support-cloud-list") await refreshSupportCloudDraftList();
+      else if (action === "open-support-cloud-draft") await openSavedSupportCloudDraft(button.dataset.key || "");
+      else if (action === "delete-support-cloud-draft") await deleteSavedSupportCloudDraft(button.dataset.key || "");
+      else if (action === "support-retry-sync") await retrySupportCloudSync();
+      else await resolveSupportSync(action === "support-use-remote");
+    } catch (error) {
+      showToast(error.message, "error");
+      if (action === "delete-support-cloud-draft") await refreshSupportCloudDraftList();
+    } finally { button.disabled = false; }
+    return;
+  }
   if (action === "resume-formation-support") {
-    if (restoreFormationSupportLocal()) await navigate("formation-support-workspace");
-    else showToast("再開できる下書きがありません。", "error");
+    const localSaved = loadFormationSupportLocal();
+    if (!restoreFormationSupportLocal(localSaved)) { showToast("再開できる下書きがありません。", "error"); return; }
+    const saved = await openSupportCloudWorkspace(state.formationSupportWorkspaceKey, localSaved);
+    if (saved) restoreFormationSupportLocal({ ...saved, workspaceKey: state.formationSupportWorkspaceKey });
+    persistFormationSupportLocal();
+    await navigate("formation-support-workspace");
     return;
   }
   if (action === "discard-formation-support") {
-    if (!window.confirm("編成支援の下書きを破棄しますか？")) return;
+    if (!window.confirm("この端末の編成支援の下書きを削除しますか？アカウントの保存は一覧から削除できます。")) return;
+    if (state.supportSync?.kind === "direct") {
+      if (state.supportSync.timer) window.clearTimeout(state.supportSync.timer);
+      state.supportSync.pending = null;
+    }
     clearFormationSupportLocal();
     state.formationSupportMode = false;
     state.sharedConsultation = null;
     state.consultationDraft = null;
-    renderFormationSupportStart();
+    await renderFormationSupportStart();
     return;
   }
   if (action === "back-to-formation-support-start") {
@@ -6520,7 +6927,7 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "show-all-consultation-candidates" || action === "hide-all-consultation-candidates") {
     setConsultationCandidateVisibility(action === "show-all-consultation-candidates");
-    renderFormationConsultationBody();
+    updateConsultationCandidateDisplay();
     return;
   }
   if (action === "toggle-formation-tactic-panel") {
@@ -6963,7 +7370,7 @@ document.addEventListener("click", async (event) => {
     state.consultationDraft.formations.push(newConsultationProposalFormation(state.consultationDraft.formations.length));
     normalizeConsultationProposalDraftForBuilder();
     persistConsultationWorkspaceLocal();
-    renderFormationConsultationBody();
+    renderFormationConsultationBodyPreserveScroll();
   }
   if (action === "remove-consultation-formation") {
     if (!state.consultationDraft || state.consultationDraft.formations.length <= 1) return;
@@ -6973,7 +7380,7 @@ document.addEventListener("click", async (event) => {
     state.consultationSwap = null;
     state.consultationExpandedTacticSlots = {};
     persistConsultationWorkspaceLocal();
-    renderFormationConsultationBody();
+    renderFormationConsultationBodyPreserveScroll();
   }
   if (action === "open-consultation-picker") {
     state.consultationSwap = null;
@@ -7004,7 +7411,7 @@ document.addEventListener("click", async (event) => {
   if (action === "clear-consultation-multi-choice") {
     if (!state.consultationPicker) return;
     state.consultationPicker.selectedIds = [];
-    refreshConsultationPickerOptions();
+    refreshConsultationPickerOptions({ selectionOnly: true });
   }
   if (action === "toggle-consultation-choice") {
     const picker = state.consultationPicker;
@@ -7019,7 +7426,7 @@ document.addEventListener("click", async (event) => {
       selected.push(id);
     }
     picker.selectedIds = selected;
-    refreshConsultationPickerOptions();
+    refreshConsultationPickerOptions({ selectionOnly: true });
   }
   if (action === "confirm-consultation-multi-choice") {
     const picker = state.consultationPicker;
@@ -7194,7 +7601,7 @@ document.addEventListener("click", async (event) => {
   if (action === "clear-formation-multi-choice") {
     if (!state.formationPicker) return;
     state.formationPicker.selectedIds = [];
-    refreshFormationPickerOptions();
+    refreshFormationPickerOptions({ selectionOnly: true });
   }
   if (action === "toggle-formation-choice") {
     const picker = state.formationPicker;
@@ -7209,7 +7616,7 @@ document.addEventListener("click", async (event) => {
       selected.push(id);
     }
     picker.selectedIds = selected;
-    refreshFormationPickerOptions();
+    refreshFormationPickerOptions({ selectionOnly: true });
   }
   if (action === "confirm-formation-multi-choice") {
     const picker = state.formationPicker;
@@ -7381,6 +7788,11 @@ document.addEventListener("click", async (event) => {
     showLoading("Discord連携を解除中...");
     try {
       await apiRequest("discord_disconnect");
+      if (state.supportSync) {
+        if (state.supportSync.timer) window.clearTimeout(state.supportSync.timer);
+        state.supportSync.linked = false; state.supportSync.pending = null;
+      }
+      state.supportCloudLinked = false; state.supportCloudAccountId = null; state.supportCloudDrafts = [];
       state.intel = null;
       showToast("この端末のDiscord連携を解除しました。", "success");
       await renderIntel();
