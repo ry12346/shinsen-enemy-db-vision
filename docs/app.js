@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.13";
+const APP_VERSION = "2.4.14";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
@@ -4074,11 +4074,11 @@ function enrichConsultationProposalFormation(formation, sourceInventory = state.
 
 function consultationProposalHtml(proposal, { readOnly = false, inventory = state.myInventory } = {}) {
   return `
-    <${readOnly ? "details" : "article"} class="card consultation-proposal-card ${proposal.adopted ? "adopted" : ""}" data-proposal-id="${escapeAttr(proposal.id)}">
+    <${readOnly ? "details" : "article"} class="card consultation-proposal-card ${!readOnly && proposal.adopted ? "adopted" : ""}" data-proposal-id="${escapeAttr(proposal.id)}">
       <${readOnly ? "summary" : "div"} class="consultation-proposal-head">
         <div><strong>${escapeHtml(proposal.proposerName || "提案者")}</strong><small>${proposal.createdAt ? escapeHtml(formatDateTime(proposal.createdAt)) : ""}</small></div>
         ${readOnly ? `<small>${Number(proposal.formations?.length || 0)}部隊</small>` : `<span class="privacy-badge ${proposal.isPublic ? "shared" : "private"}">${proposal.isPublic ? "参考公開中" : "相談者のみ"}</span>`}
-        <span class="privacy-badge ${proposal.adopted ? "shared" : "private"}">${proposal.adopted ? "採用済み" : "未採用"}</span>
+        ${readOnly ? "" : `<span class="privacy-badge ${proposal.adopted ? "shared" : "private"}">${proposal.adopted ? "採用済み" : "未採用"}</span>`}
       </${readOnly ? "summary" : "div"}>
       ${proposal.note ? `<p class="consultation-proposal-note">${escapeHtml(proposal.note)}</p>` : ""}
       <div class="consultation-proposal-formations">
