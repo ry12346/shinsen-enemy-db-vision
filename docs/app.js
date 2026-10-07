@@ -3196,11 +3196,30 @@ function formationTagsHtml(formation) {
   return tags.length ? `<div class="formation-tag-list">${tags.map((tag) => `<span class="tag-chip static">${escapeHtml(tag)}</span>`).join("")}</div>` : "";
 }
 
+function formationHistoryMembersHtml(snapshot) {
+  const members = [...(snapshot?.members ?? [])].sort((a, b) => Number(a.slot) - Number(b.slot));
+  if (!members.length) return `<div class="formation-history-empty">武将情報なし</div>`;
+  return `<div class="formation-history-members">${members.map((member) => {
+    const tactic1 = String(member?.tactic1Name || "").trim();
+    const tactic2 = String(member?.tactic2Name || "").trim();
+    return `<div class="formation-history-member">
+      <div class="formation-history-general"><span>${escapeHtml(formationMemberRole(Number(member.slot)))}</span><strong>${escapeHtml(member.generalName || "未設定")}</strong></div>
+      <div class="formation-history-tactics"><span>第1 ${escapeHtml(tactic1 || "未設定")}</span><span>第2 ${escapeHtml(tactic2 || "未設定")}</span></div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
 function formationHistoryHtml(formation) {
   const history = formation?.history ?? [];
   if (!history.length) return "";
   return `<details class="formation-history"><summary>変更履歴 ${history.length}</summary><div class="formation-history-list">
-    ${history.map((item, index) => `<div class="formation-history-row"><div><strong>${index === 0 ? "1つ前" : `${index + 1}つ前`}</strong><small>${escapeHtml(formatDateTime(item.createdAt))}</small></div><button type="button" class="secondary-button compact-button" data-action="restore-formation-history" data-id="${escapeAttr(item.id)}">この状態に戻す</button></div>`).join("")}
+    ${history.map((item, index) => `<article class="formation-history-row">
+      <div class="formation-history-head">
+        <div><strong>${escapeHtml(formatDateTime(item.createdAt))}</strong><small>${index === 0 ? "直前の状態" : `${index + 1}世代前`}</small></div>
+        <button type="button" class="secondary-button compact-button" data-action="restore-formation-history" data-id="${escapeAttr(item.id)}">この状態に戻す</button>
+      </div>
+      ${formationHistoryMembersHtml(item.snapshot)}
+    </article>`).join("")}
   </div></details>`;
 }
 
@@ -3863,7 +3882,7 @@ function persistFormationConsultationLocal() {
       paletteGrades: state.consultationTacticPaletteGrades ?? ["S"],
       paletteSource: state.consultationTacticPaletteSource || "owned",
       generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
-      candidateGeneralIds: (state.sharedConsultation?.inventory?.generals ?? []).filter((general) => Boolean(general.supportCandidate)).map((general) => String(general.qookkaId || "")).filter(Boolean),
+      candidateGeneralIds: (state.sharedConsultation?.inventory?.generals ?? []).filter((general) => consultationGeneralCandidateEnabled(general)).map((general) => general.qookkaId),
       savedAt,
     }));
     state.consultationLocalSavedAt = savedAt;
@@ -4193,6 +4212,30 @@ function supportCandidateButtonHtml(general) {
   return `<button type="button" class="support-candidate-button ${selected ? "selected" : ""}" data-action="toggle-support-candidate" data-id="${escapeAttr(general?.qookkaId || "")}" aria-pressed="${selected ? "true" : "false"}"><span aria-hidden="true">${selected ? "✓" : "+"}</span>${selected ? "編成候補" : "候補に追加"}</button>`;
 }
 
+function consultationGeneralCandidateEnabled(general) {
+  return state.formationSupportMode ? Boolean(general?.supportCandidate) : general?.supportCandidate !== false;
+}
+
+function consultationCandidateCheckboxHtml(general) {
+  const selected = consultationGeneralCandidateEnabled(general);
+  return `<label class="consultation-candidate-check"><input type="checkbox" data-consultation-candidate-id="${escapeAttr(general?.qookkaId || "")}" ${selected ? "checked" : ""} /><span>武将選択に表示</span></label>`;
+}
+
+function setConsultationCandidateVisibility(visible) {
+  for (const general of state.sharedConsultation?.inventory?.generals ?? []) general.supportCandidate = Boolean(visible);
+  persistConsultationWorkspaceLocal();
+}
+
+function initializeFormalConsultationCandidates(savedIds) {
+  if (state.formationSupportMode) return;
+  const generals = state.sharedConsultation?.inventory?.generals ?? [];
+  const hasSavedSelection = Array.isArray(savedIds);
+  const selected = hasSavedSelection ? new Set(savedIds.map((id) => String(id))) : null;
+  for (const general of generals) {
+    general.supportCandidate = hasSavedSelection ? selected.has(String(general.qookkaId || "")) : true;
+  }
+}
+
 const CONSULTATION_FACTION_ORDER = ["織田", "豊臣", "徳川", "武田", "上杉", "群雄"];
 
 function supportGeneralFallbackSort(a, b) {
@@ -4213,7 +4256,7 @@ function consultationInventoryHtml() {
   const star5Generals = (inventory.generals ?? [])
     .filter((general) => Number(general.star) === 5)
     .slice();
-  const supportCandidateCount = star5Generals.filter((general) => Boolean(general.supportCandidate)).length;
+  const supportCandidateCount = (inventory.generals ?? []).filter((general) => consultationGeneralCandidateEnabled(general)).length;
 
   // 凸確認・編成相談では、勢力ごとの比較を優先するため
   // 各勢力内をコスト降順 -> Qookka武将ID順で統一する。
@@ -4238,8 +4281,9 @@ function consultationInventoryHtml() {
         <section class="consultation-inventory-group">
           <div class="consultation-inventory-group-title"><strong>${escapeHtml(faction)}</strong><span>${factionGroups.get(faction).length}名</span></div>
           <div class="consultation-general-chip-list">
-            ${factionGroups.get(faction).map((general) =>
-              `<div class="consultation-general-chip support-general-chip ${general.supportCandidate ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${supportCandidateButtonHtml(general)}</div>${state.formationSupportMode ? supportDupeControlHtml(general) : ""}</div>`).join("")}
+            ${factionGroups.get(faction).map((general) => state.formationSupportMode
+              ? `<div class="consultation-general-chip support-general-chip ${consultationGeneralCandidateEnabled(general) ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${supportCandidateButtonHtml(general)}</div>${supportDupeControlHtml(general)}</div>`
+              : `<div class="consultation-general-chip consultation-formal-general-chip ${consultationGeneralCandidateEnabled(general) ? "candidate-selected" : ""}"><div class="support-general-chip-head"><div><b>${escapeHtml(general.name)}</b><small>${escapeHtml(consultationDupeText(general))}${general.cost ? ` ・ コスト${Number(general.cost)}` : ""}</small></div>${consultationCandidateCheckboxHtml(general)}</div></div>`).join("")}
           </div>
         </section>`).join("")
     : `<div class="notice subtle">★5武将の分類情報を取得できませんでした。編成作成では全所持武将から選択できます。</div>`;
@@ -4247,9 +4291,12 @@ function consultationInventoryHtml() {
   const openInventory = state.formationSupportMode || !isConsultationMobileViewport();
   return `
     <details class="card consultation-inventory-card" ${openInventory ? "open" : ""}>
-      <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>武将選択に表示 ${supportCandidateCount}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
+      <summary><strong>所持武将 ★5 ${star5Generals.length}</strong><span>武将選択 ${supportCandidateCount}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名</span></summary>
       <div class="consultation-inventory-body consultation-grouped-inventory">
-        <div class="consultation-candidate-actions"><span>武将選択に出す武将</span><div class="button-row"><button type="button" class="text-button compact-button" data-action="set-all-consultation-candidates" data-value="1">すべて表示</button><button type="button" class="text-button compact-button" data-action="set-all-consultation-candidates" data-value="0">すべて外す</button></div></div>
+        <div class="consultation-candidate-toolbar">
+          <div><strong>武将選択に出す武将</strong><small>${supportCandidateCount} / ${inventory.generals.length}名</small></div>
+          <div class="consultation-candidate-toolbar-actions"><button type="button" class="secondary-button compact-button" data-action="show-all-consultation-candidates">すべて表示</button><button type="button" class="secondary-button compact-button" data-action="hide-all-consultation-candidates">すべて外す</button></div>
+        </div>
         ${generalGroupsHtml}
         ${state.formationSupportMode ? `<div class="consultation-mobile-inventory-actions"><button type="button" class="primary-button" data-action="jump-to-consultation-builder">候補を決めたら編成へ</button></div>` : ""}
       </div>
@@ -4286,7 +4333,7 @@ function consultationPickerOptions() {
     .filter((item) => {
       if (selectedSet.has(item.qookkaId)) return true;
       if (picker.kind === "general") {
-        if (!item.supportCandidate) return false;
+        if (!consultationGeneralCandidateEnabled(item)) return false;
         return !usedGeneralIds.has(item.qookkaId);
       }
       return (tacticUseCounts.get(item.qookkaId) || 0) < maxTacticCopies(item);
@@ -4324,7 +4371,7 @@ function consultationPickerListHtml() {
         ? `<span>${escapeHtml(consultationDupeText(item))}${item.star ? ` ・ ★${Number(item.star)}` : ""}${item.faction ? ` ・ ${escapeHtml(item.faction)}` : ""}${item.cost ? ` ・ コスト${Number(item.cost)}` : ""}${item.inherentTacticName ? ` ・ 固有 ${escapeHtml(item.inherentTacticName)}` : ""}</span>`
         : `<span>${item.grade ? `${Number(item.grade) === 5 ? "S" : `Grade${Number(item.grade)}`} ・ ` : ""}${escapeHtml(consultationTacticKindLabel(item.kind))}</span>`}
     </button>`;
-  }).join("") : `<div class="choice-empty">${picker?.kind === "general" ? "上の所持武将一覧で「武将選択に表示」を付けてください。" : "候補がありません"}</div>`;
+  }).join("") : `<div class="choice-empty">${picker?.kind === "general" ? "上の所持武将一覧で「武将選択に表示」をオンにしてください。" : "候補がありません"}</div>`;
 }
 
 function consultationPickerFiltersHtml() {
@@ -4845,7 +4892,7 @@ function renderFormationConsultationBody() {
     content: `
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
-        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。所持武将一覧で「武将選択に表示」を外した武将は、武将選択の候補から隠せます。既に部隊へ配置した武将は外しても消えません。戦法は各武将の第1・第2枠から割り当てます。</div>
+        <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。上の所持武将一覧で、武将選択に出す武将を絞れます。戦法は各武将の第1・第2枠から割り当てます。PCでは戦法パレットからドラッグもできます。</div>
         <div class="consultation-autosave-note"><span>この端末に自動保存</span>${state.consultationLocalSavedAt ? `<small>最終保存 ${escapeHtml(formatDateTime(state.consultationLocalSavedAt))}</small>` : `<small>入力すると自動保存されます</small>`}</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
         ${consultationInventoryHtml()}
@@ -4895,10 +4942,7 @@ async function renderFormationConsultation() {
     const response = await apiRequest("shared_formation_consultation", { token: state.consultationToken });
     state.sharedConsultation = response.consultation;
     const saved = loadFormationConsultationLocal(state.consultationToken);
-    const savedCandidateIds = Array.isArray(saved?.candidateGeneralIds) ? new Set(saved.candidateGeneralIds.map((value) => String(value))) : null;
-    for (const general of state.sharedConsultation?.inventory?.generals ?? []) {
-      general.supportCandidate = savedCandidateIds ? savedCandidateIds.has(String(general.qookkaId || "")) : true;
-    }
+    initializeFormalConsultationCandidates(saved?.candidateGeneralIds);
     state.consultationDraft = saved?.draft ?? newConsultationProposalDraft();
     state.consultationLocalSavedAt = saved?.savedAt || "";
     if (saved) {
@@ -5861,6 +5905,25 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target?.dataset?.consultationCandidateId) {
+    const id = String(target.dataset.consultationCandidateId || "");
+    const general = state.sharedConsultation?.inventory?.generals?.find((row) => String(row.qookkaId || "") === id);
+    if (general) {
+      general.supportCandidate = Boolean(target.checked);
+      persistConsultationWorkspaceLocal();
+      const chip = target.closest(".consultation-general-chip");
+      chip?.classList.toggle("candidate-selected", general.supportCandidate);
+      const summary = document.querySelector(".consultation-inventory-card > summary span");
+      if (summary) {
+        const inventory = state.sharedConsultation?.inventory ?? { generals: [] };
+        const count = (inventory.generals ?? []).filter((row) => consultationGeneralCandidateEnabled(row)).length;
+        summary.textContent = `武将選択 ${count}名 ・ 勢力別 ・ 全所持${inventory.generals.length}名`;
+        const toolbarCount = document.querySelector(".consultation-candidate-toolbar small");
+        if (toolbarCount) toolbarCount.textContent = `${count} / ${inventory.generals.length}名`;
+      }
+    }
+    return;
+  }
   if (["consultation-picker-star", "consultation-picker-faction", "consultation-picker-cost"].includes(target.id)) {
     if (state.consultationPicker?.kind === "general") {
       state.consultationPicker.filters ??= { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) };
@@ -6225,18 +6288,14 @@ document.addEventListener("click", async (event) => {
     const id = button.dataset.id || "";
     const general = state.sharedConsultation?.inventory?.generals?.find((row) => row.qookkaId === id);
     if (!general) return;
-    general.supportCandidate = !general.supportCandidate;
+    general.supportCandidate = !consultationGeneralCandidateEnabled(general);
     persistConsultationWorkspaceLocal();
-    if (state.formationSupportMode) renderFormationSupportDirectBody();
-    else renderFormationConsultationBody();
+    renderFormationConsultationBody();
     return;
   }
-  if (action === "set-all-consultation-candidates") {
-    const selected = button.dataset.value === "1";
-    for (const general of state.sharedConsultation?.inventory?.generals ?? []) general.supportCandidate = selected;
-    persistConsultationWorkspaceLocal();
-    if (state.formationSupportMode) renderFormationSupportDirectBody();
-    else renderFormationConsultationBody();
+  if (action === "show-all-consultation-candidates" || action === "hide-all-consultation-candidates") {
+    setConsultationCandidateVisibility(action === "show-all-consultation-candidates");
+    renderFormationConsultationBody();
     return;
   }
   if (action === "toggle-formation-tactic-panel") {
@@ -6622,11 +6681,6 @@ document.addEventListener("click", async (event) => {
     try {
       const response = await apiRequest("my_formation_consultation_adopt", { proposalId: button.dataset.id });
       showToast(`${response.formations?.length || 0}部隊をマイ編成へ追加しました。`, "success");
-      if (response.skippedTactics?.length) {
-        const labels = response.skippedTactics.map((item) => item?.tacticName || "戦法").filter(Boolean);
-        const unique = [...new Set(labels)];
-        showToast(`既存編成で使用中のため ${response.skippedTactics.length}枠を空欄にしました：${unique.slice(0, 6).join(" / ")}${unique.length > 6 ? " ほか" : ""}`, "warning");
-      }
       await renderFormationConsultationDetail();
     } catch (error) { showToast(error.message, "error"); }
     finally { hideLoading(); }
