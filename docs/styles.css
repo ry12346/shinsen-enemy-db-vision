@@ -4123,6 +4123,38 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
 .consultation-tactic-palette-head small,
 .consultation-tactic-palette-head > span { color: var(--muted); font-size: .64rem; }
 
+.consultation-submit-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.consultation-submit-fields:disabled { opacity: .75; }
+.consultation-public-answers { display: grid; gap: 14px; padding-top: 24px; scroll-margin-top: 24px; }
+.consultation-answer-link { align-self: start; font-weight: 700; }
+.consultation-answer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.consultation-answer-toolbar p { margin: 0; font-size: 13px; }
+.consultation-public-answers .consultation-proposal-head { cursor: pointer; list-style: none; }
+.consultation-public-answers .consultation-proposal-head::-webkit-details-marker { display: none; }
+.consultation-public-answers .consultation-proposal-head::after { content: "＋"; font-weight: 700; }
+.consultation-public-answers details[open] > .consultation-proposal-head::after { content: "−"; }
+.consultation-public-answers .consultation-proposal-head > div { min-width: 0; flex: 1; }
+.consultation-public-answers .consultation-proposal-head strong { overflow-wrap: anywhere; }
+.consultation-public-consent { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.consultation-public-consent input { flex: 0 0 auto; width: 22px; height: 22px; margin: 2px 0 0; }
+.consultation-public-consent span { display: grid; gap: 6px; }
+.consultation-public-consent small { color: var(--muted); line-height: 1.7; }
+#consultation-submit-error[hidden] { display: none; }
+@media (max-width: 640px) {
+  .consultation-public-answers .consultation-proposal-head { gap: 8px; flex-wrap: wrap; }
+  .consultation-public-answers .consultation-proposal-head > div { flex-basis: 100%; }
+  .consultation-public-answers .consultation-proposal-head .privacy-badge { white-space: nowrap; }
+  .consultation-proposal-actions { align-items: stretch; }
+  .consultation-proposal-actions button { min-height: 44px; }
+  .consultation-answer-toolbar { align-items: flex-start; }
+  .consultation-public-consent small { font-size: 12px; }
+}
+
 .consultation-tactic-palette-list {
   display: grid;
   gap: 5px;

@@ -1,10 +1,18 @@
-const APP_VERSION = "2.4.11";
+const APP_VERSION = "2.4.13";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
+const FORMATION_TACTIC_NAME_ALIASES = Object.freeze({
+  "威風凛凛": "威風凜々",
+  "威風凛々": "威風凜々",
+  "威風凜凜": "威風凜々",
+  "龍騎兵": "竜騎兵",
+});
 // 所持武将から伝授できる戦法。Qookka系武将マスタの teachable_skill を日本名へ正規化して保持。
 // 新規PK武将は取得済みの日本版マスタで補完する。
 const TEACHABLE_TACTIC_BY_GENERAL = Object.freeze({"お市":{"grade":"S","kind":"受動","name":"沈魚落雁"},"ねね":{"grade":"S","kind":"受動","name":"沈魚落雁"},"一条信竜":{"grade":"S","kind":"兵種","name":"甲斐弓騎兵"},"一條信竜":{"grade":"S","kind":"兵種","name":"甲斐弓騎兵"},"三好実休":{"grade":"S","kind":"突撃","name":"威風凛凛"},"三枝昌貞":{"grade":"A","kind":"指揮","name":"警戒周到"},"上杉謙信":{"grade":"S","kind":"受動","name":"毘沙門天"},"下方貞清":{"grade":"A","kind":"能動","name":"先陣の勇"},"不破光治":{"grade":"B","kind":"能動","name":"救援"},"九戶政實":{"grade":"A","kind":"受動","name":"一念乱志"},"九戸政実":{"grade":"A","kind":"受動","name":"一念乱志"},"今川義元":{"grade":"S","kind":"受動","name":"独立独歩"},"仙桃院":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"仙石権兵衛":{"grade":"A","kind":"能動","name":"奪気"},"仙石權兵衛":{"grade":"A","kind":"能動","name":"奪気"},"伊達政宗":{"grade":"S","kind":"兵種","name":"龍騎兵"},"伊達晴宗":{"grade":"S","kind":"能動","name":"一力当先"},"佐久間信盛":{"grade":"S","kind":"指揮","name":"罵詈雑言"},"佐久間盛政":{"grade":"A","kind":"能動","name":"鬼玄蕃"},"佐竹義重":{"grade":"S","kind":"突撃","name":"威風凛凛"},"保科正俊":{"grade":"S","kind":"能動","name":"槍弾正"},"內藤信成":{"grade":"B","kind":"能動","name":"嘲罵"},"内藤信成":{"grade":"B","kind":"能動","name":"嘲罵"},"内藤昌豊":{"grade":"S","kind":"能動","name":"回天転運"},"前田利家":{"grade":"S","kind":"兵種","name":"母衣武者"},"前田慶次":{"grade":"S","kind":"突撃","name":"乱世の華"},"加藤清正":{"grade":"S","kind":"能動","name":"所向無敵"},"北条氏康":{"grade":"S","kind":"能動","name":"所領役帳"},"北条綱成":{"grade":"S","kind":"能動","name":"千軍辟易"},"北條氏康":{"grade":"S","kind":"能動","name":"所領役帳"},"北條綱成":{"grade":"S","kind":"能動","name":"千軍辟易"},"十河一存":{"grade":"S","kind":"能動","name":"前後挟撃"},"千坂景親":{"grade":"S","kind":"受動","name":"按甲休兵"},"南部晴政":{"grade":"S","kind":"受動","name":"百戦錬磨"},"原虎胤":{"grade":"S","kind":"指揮","name":"罵詈雑言"},"口羽通良":{"grade":"B","kind":"能動","name":"威圧"},"可児才蔵":{"grade":"S","kind":"受動","name":"死中求活"},"可兒才藏":{"grade":"S","kind":"受動","name":"死中求活"},"吉川広家":{"grade":"A","kind":"受動","name":"休養"},"国司元相":{"grade":"A","kind":"突撃","name":"槍の鈴"},"坂井政尚":{"grade":"A","kind":"能動","name":"先制先登"},"堀直政":{"grade":"S","kind":"能動","name":"荷駄崩し"},"壽桂尼":{"grade":"S","kind":"能動","name":"大智不智"},"多田三八郎":{"grade":"A","kind":"能動","name":"妖怪退治"},"大久保忠世":{"grade":"A","kind":"能動","name":"忠勤励行"},"大久保長安":{"grade":"S","kind":"内政","name":"重農主義"},"大內義隆":{"grade":"S","kind":"能動","name":"静動自在"},"大内義隆":{"grade":"S","kind":"能動","name":"静動自在"},"大祝鶴":{"grade":"S","kind":"指揮","name":"戦意消沈"},"太田牛一":{"grade":"A","kind":"能動","name":"奮戦"},"太田資正":{"grade":"S","kind":"受動","name":"百戦錬磨"},"妻木煕子":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"妻木熙子":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"宇佐美定満":{"grade":"S","kind":"指揮","name":"深慮遠謀"},"宇佐美定滿":{"grade":"S","kind":"指揮","name":"深慮遠謀"},"安東愛季":{"grade":"S","kind":"受動","name":"文武両道"},"安藤守就":{"grade":"A","kind":"受動","name":"一上一下"},"宮部継潤":{"grade":"S","kind":"兵種","name":"僧兵"},"宮部繼潤":{"grade":"S","kind":"兵種","name":"僧兵"},"寧寧":{"grade":"S","kind":"受動","name":"沈魚落雁"},"寿桂尼":{"grade":"S","kind":"能動","name":"大智不智"},"小山田信茂":{"grade":"A","kind":"能動","name":"矢石飛交"},"小山田茂誠":{"grade":"A","kind":"指揮","name":"参謀の助言"},"小島弥太郎":{"grade":"S","kind":"能動","name":"剛毅果断"},"小島彌太郎":{"grade":"S","kind":"能動","name":"剛毅果断"},"小幡景憲":{"grade":"A","kind":"能動","name":"甲州流軍学"},"小早川秀秋":{"grade":"B","kind":"能動","name":"薙ぎ払い"},"尼子晴久":{"grade":"S","kind":"指揮","name":"気炎万丈"},"山內一豊":{"grade":"A","kind":"能動","name":"弓調馬服"},"山内一豊":{"grade":"A","kind":"能動","name":"弓調馬服"},"山本勘助":{"grade":"S","kind":"能動","name":"草木皆兵"},"山県昌景":{"grade":"S","kind":"能動","name":"縦横馳突"},"山縣昌景":{"grade":"S","kind":"能動","name":"縦横馳突"},"岡部元信":{"grade":"S","kind":"指揮","name":"気炎万丈"},"岩城親隆":{"grade":"A","kind":"受動","name":"休養"},"島津貴久":{"grade":"S","kind":"兵種","name":"薩摩鉄砲兵"},"帰蝶":{"grade":"S","kind":"能動","name":"五里霧中"},"徳川家康":{"grade":"S","kind":"受動","name":"盤石耽々"},"德川家康":{"grade":"S","kind":"受動","name":"盤石耽々"},"成田甲斐":{"grade":"S","kind":"能動","name":"前後挟撃"},"斎藤利三":{"grade":"A","kind":"受動","name":"全力戦闘"},"斎藤義竜":{"grade":"S","kind":"突撃","name":"理非曲直"},"新発田重家":{"grade":"A","kind":"能動","name":"敵陣攪乱"},"新發田重家":{"grade":"A","kind":"能動","name":"敵陣攪乱"},"明智光秀":{"grade":"S","kind":"受動","name":"七十二の計"},"明智秀満":{"grade":"S","kind":"受動","name":"死中求活"},"明智秀滿":{"grade":"S","kind":"受動","name":"死中求活"},"朝倉義景":{"grade":"S","kind":"受動","name":"按甲休兵"},"本多忠勝":{"grade":"S","kind":"受動","name":"血戦奮闘"},"本多正信":{"grade":"S","kind":"能動","name":"帰還の凱歌"},"本庄実乃":{"grade":"B","kind":"能動","name":"火計"},"本庄實乃":{"grade":"B","kind":"能動","name":"火計"},"本願寺教如":{"grade":"B","kind":"能動","name":"水計"},"本願寺顕如":{"grade":"S","kind":"受動","name":"一行三昧"},"杉浦玄任":{"grade":"B","kind":"能動","name":"看破"},"松平信康":{"grade":"S","kind":"能動","name":"一力当先"},"松平忠直":{"grade":"B","kind":"突撃","name":"猛撃"},"松永久秀":{"grade":"S","kind":"受動","name":"一行三昧"},"板垣信方":{"grade":"S","kind":"能動","name":"奇謀独断"},"林秀貞":{"grade":"B","kind":"能動","name":"対話"},"柴田勝家":{"grade":"S","kind":"受動","name":"血戦奮闘"},"栗山善助":{"grade":"A","kind":"能動","name":"秋水一色"},"森可成":{"grade":"S","kind":"能動","name":"陣形崩し"},"榊原康政":{"grade":"S","kind":"指揮","name":"気勢衝天"},"樋口兼豊":{"grade":"S","kind":"能動","name":"奇謀独断"},"横山喜内":{"grade":"A","kind":"能動","name":"一六勝負"},"武田信玄":{"grade":"S","kind":"受動","name":"御旗楯無"},"武田義信":{"grade":"A","kind":"突撃","name":"一触即発"},"歸蝶":{"grade":"S","kind":"能動","name":"五里霧中"},"毛利元就":{"grade":"S","kind":"受動","name":"運勝の鼻"},"毛利輝元":{"grade":"A","kind":"能動","name":"祓除"},"毛利隆元":{"grade":"S","kind":"能動","name":"草木皆兵"},"氏家卜全":{"grade":"A","kind":"能動","name":"殿軍奮戦"},"水原親憲":{"grade":"A","kind":"能動","name":"援護射撃"},"池田せん":{"grade":"A","kind":"能動","name":"不意打ち"},"池田千":{"grade":"A","kind":"能動","name":"不意打ち"},"池田恒興":{"grade":"A","kind":"突撃","name":"一刀両断"},"池田輝政":{"grade":"A","kind":"能動","name":"岐阜侍従"},"河尻秀隆":{"grade":"B","kind":"能動","name":"刺突"},"河田長親":{"grade":"S","kind":"能動","name":"金鼓連天"},"津田算長":{"grade":"S","kind":"兵種","name":"鉄砲僧兵"},"浅井長政":{"grade":"S","kind":"能動","name":"金鼓連天"},"浦上宗景":{"grade":"S","kind":"能動","name":"荷駄崩し"},"淺井長政":{"grade":"S","kind":"能動","name":"金鼓連天"},"瑞溪院":{"grade":"S","kind":"能動","name":"静動自在"},"甘利虎泰":{"grade":"S","kind":"能動","name":"剛毅果断"},"甘粕景持":{"grade":"S","kind":"突撃","name":"乗勝追撃"},"甘粕景継":{"grade":"A","kind":"突撃","name":"回山倒海"},"相馬盛胤":{"grade":"S","kind":"突撃","name":"境目奮戦"},"真柄直隆":{"grade":"S","kind":"兵種","name":"大太刀力士隊"},"真田大助":{"grade":"B","kind":"能動","name":"反撃"},"磯野員昌":{"grade":"A","kind":"能動","name":"驍勇善戦"},"福原貞俊":{"grade":"A","kind":"能動","name":"融通自在"},"福島正なら":{"grade":"S","kind":"能動","name":"所向無敵"},"福留親政":{"grade":"A","kind":"能動","name":"奮戦"},"稲葉一鉄":{"grade":"S","kind":"能動","name":"陣形崩し"},"立花道雪":{"grade":"S","kind":"能動","name":"霹靂一撃"},"竹中半兵衛":{"grade":"S","kind":"能動","name":"大智不智"},"筒井順慶":{"grade":"B","kind":"能動","name":"火攻め"},"結城秀康":{"grade":"A","kind":"受動","name":"腹中鱗甲"},"織田信長":{"grade":"S","kind":"能動","name":"紅蓮の炎"},"織田信雄":{"grade":"B","kind":"能動","name":"同討"},"脇坂安治":{"grade":"A","kind":"能動","name":"攻守兼備"},"色部勝長":{"grade":"B","kind":"突撃","name":"連戦"},"色部長実":{"grade":"B","kind":"受動","name":"奮起"},"色部長實":{"grade":"B","kind":"受動","name":"奮起"},"荒木村重":{"grade":"S","kind":"指揮","name":"戦意消沈"},"藤林正保":{"grade":"S","kind":"兵種","name":"伊賀忍者"},"蜂須賀家政":{"grade":"A","kind":"能動","name":"有備無患"},"蜂須賀小六":{"grade":"S","kind":"能動","name":"嚢沙之計"},"諏訪姫":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"諏訪姬":{"grade":"S","kind":"突撃","name":"戦意崩壊"},"豊臣秀吉":{"grade":"S","kind":"能動","name":"水攻干計"},"遠藤基信":{"grade":"B","kind":"能動","name":"殿軍"},"遠藤直経":{"grade":"A","kind":"能動","name":"闇討ち"},"遠藤直經":{"grade":"A","kind":"能動","name":"闇討ち"},"酒井忠次":{"grade":"S","kind":"兵種","name":"三河弓兵隊"},"里見義堯":{"grade":"S","kind":"突撃","name":"境目奮戦"},"金森長近":{"grade":"B","kind":"突撃","name":"破甲"},"鈴木重朝":{"grade":"A","kind":"能動","name":"鉄砲猛撃"},"長宗我部元親":{"grade":"S","kind":"指揮","name":"一領具足"},"長野業正":{"grade":"S","kind":"指揮","name":"戮力同心"},"長野業盛":{"grade":"B","kind":"突撃","name":"不退転"},"阿市":{"grade":"S","kind":"受動","name":"沈魚落雁"},"陶晴賢":{"grade":"S","kind":"突撃","name":"理非曲直"},"飯富虎昌":{"grade":"S","kind":"兵種","name":"赤備え隊"},"馬場信春":{"grade":"S","kind":"受動","name":"以戦養戦"},"高力清長":{"grade":"S","kind":"能動","name":"嚢沙之計"},"高橋紹運":{"grade":"S","kind":"突撃","name":"乱世の華"},"鬼庭左月斎":{"grade":"A","kind":"能動","name":"生死一顧"},"鬼庭左月齋":{"grade":"A","kind":"能動","name":"生死一顧"},"鳥居元忠":{"grade":"A","kind":"受動","name":"百錬成鋼"},"黑田官兵衛":{"grade":"S","kind":"指揮","name":"知者楽水"},"黒田官兵衛":{"grade":"S","kind":"指揮","name":"知者楽水"},"齋藤利三":{"grade":"A","kind":"受動","name":"全力戦闘"},"齋藤義竜":{"grade":"S","kind":"突撃","name":"理非曲直"}});
+// 日本版Qookkaマスタで同一名の戦法IDを照合（cfg 1787384993825）。
+const TEACHABLE_TACTIC_IDS_BY_NAME = Object.freeze({"沈魚落雁":["20103"],"甲斐弓騎兵":["20127"],"威風凜々":["20185"],"警戒周到":["24004"],"毘沙門天":["20136"],"先陣の勇":["24024"],"救援":["29613"],"一念乱志":["24003"],"独立独歩":["20139"],"戦意崩壊":["20100"],"奪気":["24048"],"竜騎兵":["20190"],"一力当先":["20096"],"罵詈雑言":["20118"],"鬼玄蕃":["24010"],"槍弾正":["24002"],"嘲罵":["29624"],"回天転運":["20093"],"母衣武者":["20125"],"乱世の華":["20160"],"所向無敵":["20088"],"所領役帳":["20138"],"千軍辟易":["20094"],"前後挟撃":["20092"],"按甲休兵":["20095"],"百戦錬磨":["20116"],"威圧":["29618"],"死中求活":["20104"],"休養":["24049"],"槍の鈴":["24033","24046"],"先制先登":["24008"],"荷駄崩し":["20186"],"大智不智":["20122"],"妖怪退治":["24034"],"忠勤励行":["24012"],"重農主義":["20197"],"静動自在":["20161"],"戦意消沈":["20106"],"奮戦":["24044"],"帰還の凱歌":["20109"],"深慮遠謀":["20108"],"文武両道":["20105","29959"],"一上一下":["24009"],"僧兵":["20131"],"矢石飛交":["24025"],"参謀の助言":["24030"],"剛毅果断":["20120"],"甲州流軍学":["24043"],"薙ぎ払い":["29606"],"気炎万丈":["20089"],"弓調馬服":["24023"],"草木皆兵":["20090"],"縦横馳突":["20091"],"薩摩鉄砲兵":["20128"],"五里霧中":["20117"],"盤石耽々":["20134"],"全力戦闘":["24017"],"理非曲直":["20099"],"敵陣攪乱":["24038"],"七十二の計":["20141"],"血戦奮闘":["20112"],"火計":["29620"],"水計":["29621"],"一行三昧":["20102"],"看破":["29610"],"猛撃":["29633"],"奇謀独断":["20101"],"対話":["29629"],"秋水一色":["24028"],"陣形崩し":["20087"],"気勢衝天":["20107"],"一六勝負":["24040"],"御旗楯無":["20135"],"一触即発":["24022"],"運勝の鼻":["20137"],"祓除":["24047"],"殿軍奮戦":["24006"],"援護射撃":["24013"],"不意打ち":["24016"],"一刀両断":["24015"],"岐阜侍従":["24041"],"刺突":["29619"],"金鼓連天":["20119"],"鉄砲僧兵":["20129"],"乗勝追撃":["20097"],"回山倒海":["24001"],"境目奮戦":["20162"],"大太刀力士隊":["20130"],"反撃":["29627"],"驍勇善戦":["24039"],"融通自在":["24027"],"霹靂一撃":["20113"],"火攻め":["29607"],"腹中鱗甲":["24036"],"紅蓮の炎":["20132"],"同討":["29608"],"攻守兼備":["24005"],"連戦":["29631"],"奮起":["29636"],"伊賀忍者":["20191"],"有備無患":["24020"],"嚢沙之計":["20121"],"水攻干計":["20133"],"殿軍":["29612"],"闇討ち":["24035"],"三河弓兵隊":["20126"],"破甲":["29632"],"鉄砲猛撃":["24007"],"一領具足":["20140"],"戮力同心":["20184"],"不退転":["29630"],"赤備え隊":["20124"],"以戦養戦":["20114"],"生死一顧":["24021"],"百錬成鋼":["24045"],"知者楽水":["20158"]});
 const INTEL_TITLE_LEVELS = Object.freeze([
   { threshold: 30, label: "斥候" },
   { threshold: 80, label: "間者" },
@@ -99,6 +107,9 @@ const state = {
   consultationDraft: null,
   consultationPicker: null,
   consultationSubmitted: false,
+  consultationSubmitting: false,
+  consultationSubmissionError: "",
+  consultationAnswersError: "",
   consultationInventorySearch: "",
   consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
   consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
@@ -116,6 +127,9 @@ const state = {
   formationSupportSavedAt: "",
   consultationLocalSavedAt: "",
 };
+
+let consultationAnswersTimer = null;
+let consultationAnswersRefreshPromise = null;
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
 const OCR_SHEET_WIDTH = 1800;
@@ -1462,6 +1476,7 @@ async function initialize() {
 }
 
 async function navigate(view) {
+  stopConsultationAnswersPolling();
   state.view = view;
   window.scrollTo({ top: 0, behavior: "auto" });
   if (view === "enemies") await renderEnemies();
@@ -3161,7 +3176,7 @@ function formationSummaryMembers(formation) {
       <div class="formation-summary-general">
         <span class="slot-label">${escapeHtml(formationMemberRole(Number(member.slot)))}</span>
         <strong>${escapeHtml(member.generalName || "未設定")}</strong>
-        ${member.generalName ? `<span class="dupe-text">${Number(member.dupeCount || 0)}凸</span>` : ""}
+        ${member.generalName ? `<span class="dupe-text">${member.dupeCount == null ? "凸不明" : `${Number(member.dupeCount)}凸`}</span>` : ""}
       </div>
       <div class="formation-summary-tactics">
         ${member.inherentTacticName ? `<span class="inherent-tactic">固有 ${escapeHtml(member.inherentTacticName)}</span>` : ""}
@@ -3973,6 +3988,7 @@ function newConsultationProposalDraft() {
   return {
     proposerName: "",
     note: "",
+    isPublic: true,
     formations: [newConsultationProposalFormation(0)],
   };
 }
@@ -4002,7 +4018,8 @@ function consultationManagementHtml() {
             </div>
             <div class="button-row">
               <button type="button" class="secondary-button compact-button" data-action="open-formation-consultation-detail" data-id="${escapeAttr(consultation.id)}">提案を見る</button>
-              ${consultation.isActive === false ? "" : `<button type="button" class="secondary-button compact-button" data-action="copy-formation-consultation" data-token="${escapeAttr(consultation.shareToken || "")}">相談URLコピー</button><button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付終了</button>`}
+              ${consultation.shareToken ? `<button type="button" class="secondary-button compact-button" data-action="copy-formation-consultation" data-token="${escapeAttr(consultation.shareToken)}">${consultation.isActive === false ? "参考URLコピー" : "相談URLコピー"}</button>` : ""}
+              ${consultation.isActive === false ? "" : `<button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付終了</button>`}
             </div>
           </div>`).join("")}
       </div>
@@ -4040,28 +4057,29 @@ function renderFormationConsultationCreate() {
   });
 }
 
-function enrichConsultationProposalFormation(formation) {
-  const inventory = state.myInventory?.generals ?? [];
+function enrichConsultationProposalFormation(formation, sourceInventory = state.myInventory) {
+  const inventory = sourceInventory?.generals ?? [];
   return {
     ...formation,
     members: (formation.members ?? []).map((member) => {
       const current = inventory.find((row) => row.qookkaId === member.generalQookkaId);
       return {
         ...member,
-        dupeCount: Number(current?.dupeCount || 0),
-        inherentTacticName: current?.inherentTacticName || "",
+        dupeCount: member.dupeCount ?? current?.dupeCount ?? null,
+        inherentTacticName: member.inherentTacticName || current?.inherentTacticName || "",
       };
     }),
   };
 }
 
-function consultationProposalHtml(proposal) {
+function consultationProposalHtml(proposal, { readOnly = false, inventory = state.myInventory } = {}) {
   return `
-    <article class="card consultation-proposal-card ${proposal.adopted ? "adopted" : ""}">
-      <div class="consultation-proposal-head">
+    <${readOnly ? "details" : "article"} class="card consultation-proposal-card ${proposal.adopted ? "adopted" : ""}" data-proposal-id="${escapeAttr(proposal.id)}">
+      <${readOnly ? "summary" : "div"} class="consultation-proposal-head">
         <div><strong>${escapeHtml(proposal.proposerName || "提案者")}</strong><small>${proposal.createdAt ? escapeHtml(formatDateTime(proposal.createdAt)) : ""}</small></div>
+        ${readOnly ? `<small>${Number(proposal.formations?.length || 0)}部隊</small>` : `<span class="privacy-badge ${proposal.isPublic ? "shared" : "private"}">${proposal.isPublic ? "参考公開中" : "相談者のみ"}</span>`}
         <span class="privacy-badge ${proposal.adopted ? "shared" : "private"}">${proposal.adopted ? "採用済み" : "未採用"}</span>
-      </div>
+      </${readOnly ? "summary" : "div"}>
       ${proposal.note ? `<p class="consultation-proposal-note">${escapeHtml(proposal.note)}</p>` : ""}
       <div class="consultation-proposal-formations">
         ${(proposal.formations ?? []).map((formation, index) => `
@@ -4070,30 +4088,30 @@ function consultationProposalHtml(proposal) {
               <div><span class="shared-set-number">${index + 1}</span><strong>${escapeHtml(formation.name || `第${index + 1}軍`)}</strong></div>
               <small>武将3名・戦法</small>
             </div>
-            <div class="formation-summary">${formationSummaryMembers(enrichConsultationProposalFormation(formation))}</div>
+            <div class="formation-summary">${formationSummaryMembers(enrichConsultationProposalFormation(formation, inventory))}</div>
             ${formation.note ? `<p class="formation-note">${escapeHtml(formation.note)}</p>` : ""}
           </section>`).join("")}
       </div>
-      <div class="button-row consultation-proposal-actions">
+      ${readOnly ? "" : `<div class="button-row consultation-proposal-actions">
         ${proposal.adopted
           ? `<span class="muted">この提案はマイ編成へコピー済みです。</span>`
           : `<button type="button" class="primary-button compact-button" data-action="adopt-formation-consultation-proposal" data-id="${escapeAttr(proposal.id)}">この提案を採用</button>`}
         <button type="button" class="text-button danger-text" data-action="delete-formation-consultation-proposal" data-id="${escapeAttr(proposal.id)}">提案を削除</button>
-      </div>
-    </article>`;
+        <button type="button" class="secondary-button compact-button" data-action="set-consultation-proposal-visibility" data-id="${escapeAttr(proposal.id)}" data-public="${proposal.isPublic ? "false" : "true"}">${proposal.isPublic ? "参考表示を非公開にする" : "相談URLに参考公開する"}</button>
+      </div>`}
+    </${readOnly ? "details" : "article"}>`;
 }
 
 function consultationCompareCell(formation) {
   if (!formation) return `<span class="muted">—</span>`;
-  const enriched = enrichConsultationProposalFormation(formation);
-  const members = [...(enriched.members ?? [])].sort((a,b)=>Number(a.slot)-Number(b.slot));
+  const members = [...(formation.members ?? [])].sort((a,b)=>Number(a.slot)-Number(b.slot));
   return `<div class="proposal-compare-cell"><strong>${escapeHtml(formation.name || "編成")}</strong>${members.map((m) => `<div><b>${escapeHtml(formationMemberRole(Number(m.slot)))}</b> ${escapeHtml(m.generalName || "未設定")}<small>${[m.tactic1Name,m.tactic2Name].filter(Boolean).map(escapeHtml).join(" / ") || "戦法未設定"}</small></div>`).join("")}</div>`;
 }
 
-function consultationComparisonHtml(proposals) {
+function consultationComparisonHtml(proposals, { readOnly = false } = {}) {
   if ((proposals ?? []).length < 2) return "";
   const maxFormations = Math.max(...proposals.map((proposal) => proposal.formations?.length ?? 0), 0);
-  return `<details class="card proposal-comparison" open><summary><strong>提案を比較</strong><span>${proposals.length}案</span></summary><div class="proposal-comparison-scroll"><table><thead><tr><th>部隊</th>${proposals.map((proposal) => `<th>${escapeHtml(proposal.proposerName || "提案者")}</th>`).join("")}</tr></thead><tbody>${Array.from({length:maxFormations},(_,index)=>`<tr><th>第${index+1}軍</th>${proposals.map((proposal)=>`<td>${consultationCompareCell(proposal.formations?.[index])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
+  return `<details class="card proposal-comparison" ${readOnly ? "" : "open"}><summary><strong>提案を比較</strong><span>${proposals.length}案</span></summary><div class="proposal-comparison-scroll"><table><thead><tr><th>部隊</th>${proposals.map((proposal) => `<th>${escapeHtml(proposal.proposerName || "提案者")}</th>`).join("")}</tr></thead><tbody>${Array.from({length:maxFormations},(_,index)=>`<tr><th>第${index+1}軍</th>${proposals.map((proposal)=>`<td>${consultationCompareCell(proposal.formations?.[index])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
 }
 
 async function renderFormationConsultationDetail() {
@@ -4123,11 +4141,13 @@ async function renderFormationConsultationDetail() {
             <div class="button-row">
               ${consultation?.shareToken ? `<button type="button" class="secondary-button" data-action="copy-formation-consultation" data-token="${escapeAttr(consultation.shareToken)}">相談URLをコピー</button>` : ""}
               ${consultation?.isActive ? `<button type="button" class="text-button danger-text" data-action="revoke-formation-consultation" data-id="${escapeAttr(consultation.id)}">受付を終了</button>` : `<span class="muted">受付終了済み</span>`}
+              <button type="button" class="secondary-button" data-action="set-consultation-url-visibility" data-id="${escapeAttr(consultation.id)}" data-shared="${consultation?.shareToken ? "false" : "true"}">${consultation?.shareToken ? "URLを非公開にする" : "参考URLを発行する"}</button>
             </div>
+            <p class="muted compact-note">公開した回答は相談URLから参考として読めます。過去の回答は非公開のままです。受付終了後も参考表示は残り、URLを非公開にすると閲覧できなくなります。</p>
           </div>
           ${consultationComparisonHtml(proposals)}
           <div class="section-heading"><h2>届いた提案</h2><span>${proposals.length}件</span></div>
-          ${proposals.length ? proposals.map(consultationProposalHtml).join("") : `<div class="card empty-state"><strong>まだ提案はありません</strong><p class="muted">相談URLをDiscordなどで共有してください。</p></div>`}
+          ${proposals.length ? proposals.map((proposal) => consultationProposalHtml(proposal)).join("") : `<div class="card empty-state"><strong>まだ提案はありません</strong><p class="muted">相談URLをDiscordなどで共有してください。</p></div>`}
         </div>`,
       activeNav: "formations",
       backAction: "back-to-formations",
@@ -4519,7 +4539,8 @@ function consultationProposalFormationEditorHtml(formation, index) {
 }
 
 function consultationTacticBaseName(value) {
-  return String(value || "").replace(/\s*（伝授）\s*$/, "").trim();
+  const name = String(value || "").normalize("NFKC").replace(/\s*\(伝授\)\s*$/, "").trim();
+  return FORMATION_TACTIC_NAME_ALIASES[normalizeSearchText(name)] ?? name;
 }
 
 function consultationTacticUsageCountByName(tacticName) {
@@ -4552,25 +4573,34 @@ function consultationTacticUsageCount(tacticId, tacticName = "") {
 
 function consultationTeachableTactics() {
   const inventory = state.sharedConsultation?.inventory ?? { generals: [], tactics: [] };
-  const ownedTacticByName = new Map((inventory.tactics ?? []).map((tactic) => [normalizeSearchText(tactic.name || ""), tactic]));
+  const ownedTacticNames = new Set((inventory.tactics ?? []).map((tactic) => normalizeSearchText(consultationTacticBaseName(tactic.name))));
+  const ownedTacticIds = new Set((inventory.tactics ?? []).map((tactic) => String(tactic.qookkaId || "")));
   const grouped = new Map();
   for (const general of inventory.generals ?? []) {
     const info = TEACHABLE_TACTIC_BY_GENERAL[String(general.name || "").trim()];
     if (!info?.name) continue;
-    const key = normalizeSearchText(info.name);
+    const name = consultationTacticBaseName(info.name);
+    const key = normalizeSearchText(name);
     if (!key) continue;
-    const existingOwned = ownedTacticByName.get(key);
-    if (existingOwned) continue;
+    const tacticIds = TEACHABLE_TACTIC_IDS_BY_NAME[name] ?? [];
+    if (ownedTacticNames.has(key) || tacticIds.some((id) => ownedTacticIds.has(id))) continue;
     const current = grouped.get(key) ?? {
-      name: info.name,
+      name,
       grade: info.grade || "S",
       kind: info.kind || "その他",
       sourceGenerals: [],
     };
-    if (!current.sourceGenerals.includes(general.name)) current.sourceGenerals.push(general.name);
+    if (!current.sourceGenerals.some((source) => source.name === general.name)) {
+      current.sourceGenerals.push({ name: general.name, dupeCount: general.dupeCount });
+    }
     grouped.set(key, current);
   }
   return [...grouped.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+}
+
+function consultationTeachableSourceText(tactic) {
+  const sources = (tactic.sourceGenerals ?? []).map((general) => `${general.name}（${consultationDupeText(general)}）`);
+  return sources.length ? `${sources.join(" / ")}から伝授` : "";
 }
 
 function consultationPaletteSourceItems() {
@@ -4590,7 +4620,7 @@ function consultationTacticPaletteItems() {
     if (gradeFilters.length && !gradeFilters.includes(grade)) return false;
     if (kindFilters.length && !kindFilters.includes(kind)) return false;
     if (query) {
-      const haystack = [tactic.name, ...(tactic.sourceGenerals ?? [])].map((value) => normalizeSearchText(value || "")).join(" ");
+      const haystack = [tactic.name, ...(tactic.sourceGenerals ?? []).map((general) => general.name)].map((value) => normalizeSearchText(value || "")).join(" ");
       if (!haystack.includes(query)) return false;
     }
     return true;
@@ -4606,11 +4636,9 @@ function consultationTacticPaletteListHtml() {
     const baseName = consultationTacticBaseName(tactic.name);
     const limit = FORMATION_TACTIC_COPY_LIMITS[baseName] ?? (teachableMode ? 1 : maxTacticCopies(tactic));
     const exhausted = used >= limit;
-    const sourceText = teachableMode && tactic.sourceGenerals?.length
-      ? ` ・ ${tactic.sourceGenerals.join(" / ")}から伝授`
-      : "";
+    const sourceText = teachableMode ? consultationTeachableSourceText(tactic) : "";
     return `<div class="consultation-palette-tactic ${teachableMode ? "teachable" : ""} ${used ? "used" : ""} ${exhausted ? "exhausted" : ""}" data-dnd-type="tactic" data-dnd-context="consultation" data-dnd-source-kind="${teachableMode ? "teachable" : "pool"}" data-tactic-id="${escapeAttr(teachableMode ? "" : tactic.qookkaId)}" data-tactic-name="${escapeAttr(tactic.name)}" draggable="${exhausted ? "false" : "true"}">
-      <div><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${escapeHtml(sourceText)}${used ? " ・ 使用中" : ""}</small></div>
+      <div><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${sourceText ? ` ・ ${escapeHtml(sourceText)}` : ""}${used ? " ・ 使用中" : ""}</small></div>
       ${exhausted ? `<span class="consultation-palette-used-mark">使用中</span>` : dndHandleHtml(`${tactic.name}${teachableMode ? "（伝授）" : ""}を武将へドラッグ`)}
     </div>`;
   }).join("");
@@ -4672,7 +4700,7 @@ function consultationMobileTacticListHtml() {
     const limit = FORMATION_TACTIC_COPY_LIMITS[baseName] ?? (teachableMode ? 1 : maxTacticCopies(tactic));
     const isCurrent = currentBase && currentBase === normalizeSearchText(baseName);
     const exhausted = !isCurrent && used >= limit;
-    const sourceText = teachableMode && tactic.sourceGenerals?.length ? `${tactic.sourceGenerals.join(" / ")}から伝授` : "";
+    const sourceText = teachableMode ? consultationTeachableSourceText(tactic) : "";
     return `<button type="button" class="consultation-mobile-tactic-option ${teachableMode ? "teachable" : ""} ${isCurrent ? "current" : ""}" data-action="assign-mobile-consultation-tactic" data-source-kind="${teachableMode ? "teachable" : "pool"}" data-tactic-id="${escapeAttr(teachableMode ? "" : tactic.qookkaId)}" data-tactic-name="${escapeAttr(tactic.name)}" ${exhausted || isCurrent ? "disabled" : ""}>
       <span><strong>${escapeHtml(tactic.name)}</strong><small>${escapeHtml(tacticGradeLabel(tactic) || "-")} ・ ${escapeHtml(consultationTacticKindLabel(tactic.kind))}${sourceText ? ` ・ ${escapeHtml(sourceText)}` : ""}${used && !isCurrent ? " ・ 使用中" : ""}</small></span>
       <b>${isCurrent ? "設定中" : exhausted ? "使用中" : "選択"}</b>
@@ -4866,6 +4894,185 @@ function renderFormationSupportDirectBody() {
   if (state.consultationPicker) window.setTimeout(() => document.getElementById("consultation-picker-search")?.focus(), 30);
 }
 
+function consultationPublicAnswersHtml() {
+  const proposals = state.sharedConsultation?.proposals ?? [];
+  return `<div class="section-heading"><h2>参考回答</h2><span>${proposals.length}件</span></div>
+    <div class="consultation-answer-toolbar"><p class="muted">回答者名をタップするとコメントと編成を読めます。表示中は30秒ごとに更新します。</p><button type="button" class="secondary-button compact-button" data-action="refresh-consultation-answers">更新</button></div>
+    ${state.consultationAnswersError ? `<p class="notice warning" role="status">${escapeHtml(state.consultationAnswersError)}</p>` : ""}
+    ${consultationComparisonHtml(proposals, { readOnly: true })}
+    ${proposals.length ? proposals.map((proposal) => consultationProposalHtml(proposal, { readOnly: true, inventory: state.sharedConsultation?.inventory })).join("") : `<div class="card empty-state"><p class="muted">公開された回答はまだありません。相談者のみへの回答はここには表示されません。</p></div>`}`;
+}
+
+function stopConsultationAnswersPolling() {
+  if (consultationAnswersTimer != null) window.clearInterval(consultationAnswersTimer);
+  consultationAnswersTimer = null;
+}
+
+function startConsultationAnswersPolling() {
+  stopConsultationAnswersPolling();
+  consultationAnswersTimer = window.setInterval(() => {
+    if (!document.hidden) void refreshConsultationPublicAnswers();
+  }, 30000);
+}
+
+function consultationStillOpen(token) {
+  return state.view === "formation-consultation" && !state.formationSupportMode && state.consultationToken === token;
+}
+
+function updateConsultationPublicAnswersPanel() {
+  const panel = document.getElementById("consultation-public-answers");
+  if (!panel) return;
+  const openIds = new Set([...panel.querySelectorAll("[data-proposal-id][open]")].map((row) => row.dataset.proposalId));
+  const comparison = panel.querySelector(".proposal-comparison");
+  const comparisonOpen = Boolean(comparison?.open);
+  const comparisonScroll = panel.querySelector(".proposal-comparison-scroll")?.scrollLeft || 0;
+  panel.innerHTML = consultationPublicAnswersHtml();
+  panel.querySelectorAll("[data-proposal-id]").forEach((row) => { row.open = openIds.has(row.dataset.proposalId); });
+  const updatedComparison = panel.querySelector(".proposal-comparison");
+  if (updatedComparison) updatedComparison.open = comparisonOpen;
+  const scroll = panel.querySelector(".proposal-comparison-scroll");
+  if (scroll) scroll.scrollLeft = comparisonScroll;
+  const link = document.getElementById("consultation-answer-link");
+  if (link) link.textContent = `参考回答を読む（${state.sharedConsultation?.proposals?.length || 0}件）`;
+}
+
+async function refreshConsultationPublicAnswers({ manual = false } = {}) {
+  const token = state.consultationToken;
+  if (!consultationStillOpen(token)) return;
+  if (consultationAnswersRefreshPromise?.token === token) return consultationAnswersRefreshPromise.promise;
+  const refreshEntry = { token, promise: null };
+  consultationAnswersRefreshPromise = refreshEntry;
+  const promise = (async () => {
+    try {
+      const response = await apiRequest("shared_formation_consultation_answers", { token });
+      if (!consultationStillOpen(token)) return;
+      const changed = JSON.stringify(state.sharedConsultation.proposals ?? []) !== JSON.stringify(response.proposals ?? []);
+      const hadError = Boolean(state.consultationAnswersError);
+      state.sharedConsultation.proposals = response.proposals ?? [];
+      state.sharedConsultation.isActive = response.isActive;
+      state.consultationAnswersError = "";
+      if (changed || hadError || manual) updateConsultationPublicAnswersPanel();
+      if (response.isActive === false) {
+        const availability = document.getElementById("consultation-availability");
+        if (availability) availability.innerHTML = `<div class="notice info">この相談は受付終了です。参考回答を閲覧できます。編集中の下書きはこの端末に残っています。</div>`;
+        const submit = document.querySelector('[data-form="submit-formation-consultation-proposal"] button[type="submit"]');
+        if (submit) { submit.disabled = true; submit.textContent = "受付終了"; }
+      }
+    } catch (error) {
+      if (!consultationStillOpen(token)) return;
+      if (error.code === "CONSULTATION_NOT_FOUND") {
+        state.sharedConsultation.isActive = false;
+        state.sharedConsultation.proposals = [];
+        state.consultationAnswersError = "この相談URLは非公開になりました。下書きはこの端末に残っています。";
+        stopConsultationAnswersPolling();
+        const submit = document.querySelector('[data-form="submit-formation-consultation-proposal"] button[type="submit"]');
+        if (submit) submit.disabled = true;
+      } else {
+        state.consultationAnswersError = "参考回答を更新できませんでした。編集中の内容は保持しています。更新ボタンで再試行できます。";
+      }
+      updateConsultationPublicAnswersPanel();
+    } finally {
+      if (consultationAnswersRefreshPromise === refreshEntry) consultationAnswersRefreshPromise = null;
+    }
+  })();
+  refreshEntry.promise = promise;
+  return promise;
+}
+
+function newConsultationRequestId() {
+  if (window.crypto.randomUUID) return window.crypto.randomUUID();
+  const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
+function prepareConsultationSubmission(draft) {
+  const formations = (draft.formations ?? []).filter((formation) => (formation.members ?? []).some((member) =>
+    member.generalQookkaId || member.generalName || member.tactic1Name || member.tactic2Name || member.tactic1QookkaId || member.tactic2QookkaId));
+  if (!formations.length || formations.length > 10) throw new Error("武将を設定した部隊を1〜10部隊用意してください。空の追加部隊は送信しません。");
+  const payload = {
+    proposerName: String(draft.proposerName || "").trim().slice(0, 40),
+    note: String(draft.note || "").trim().slice(0, 1000),
+    isPublic: draft.isPublic === true,
+    formations: formations.map((formation, index) => ({
+      name: `第${index + 1}部隊`, note: "", troopType: "", troopLevel: null,
+      members: [1,2,3].map((slot) => {
+        const member = (formation.members ?? []).find((row) => Number(row.slot) === slot) ?? {};
+        return { slot, generalQookkaId: member.generalQookkaId || "", generalName: member.generalName || "",
+          tactic1QookkaId: member.tactic1QookkaId || "", tactic1Name: member.tactic1Name || "",
+          tactic2QookkaId: member.tactic2QookkaId || "", tactic2Name: member.tactic2Name || "" };
+      }),
+    })),
+  };
+  if (!payload.proposerName) throw new Error("提案者名を入力してください。");
+  if (payload.formations.some((formation) => formation.members.some((member) => !member.generalQookkaId))) {
+    throw new Error("各部隊に大将・副将2名の3武将を設定してください。");
+  }
+  const ids = payload.formations.flatMap((formation) => formation.members.map((member) => member.generalQookkaId));
+  if (new Set(ids).size !== ids.length) throw new Error("同じ武将を複数部隊に配置できません。");
+  const signature = JSON.stringify(payload);
+  if (!draft.requestId || draft.requestSignature !== signature) {
+    draft.requestId = newConsultationRequestId();
+    draft.requestSignature = signature;
+  }
+  return { ...payload, requestId: draft.requestId };
+}
+
+function updateConsultationSubmitStatus() {
+  const fields = document.getElementById("consultation-proposal-fields");
+  if (fields) fields.disabled = state.consultationSubmitting || state.sharedConsultation?.isActive === false;
+  const button = document.querySelector('[data-form="submit-formation-consultation-proposal"] button[type="submit"]');
+  if (button) {
+    button.disabled = state.consultationSubmitting || state.sharedConsultation?.isActive === false;
+    button.textContent = state.consultationSubmitting ? "送信中…" : state.sharedConsultation?.isActive === false ? "受付終了" : "この編成案を送信";
+  }
+  const errorPanel = document.getElementById("consultation-submit-error");
+  if (errorPanel) {
+    errorPanel.hidden = !state.consultationSubmissionError;
+    errorPanel.textContent = state.consultationSubmissionError;
+  }
+}
+
+async function submitConsultationAnswer(formData) {
+  if (state.consultationSubmitting || state.consultationSubmitted || !state.consultationDraft || !state.consultationToken) return false;
+  const token = state.consultationToken;
+  const draft = state.consultationDraft;
+  draft.proposerName = String(formData.get("proposerName") ?? draft.proposerName ?? "").trim();
+  draft.note = String(formData.get("note") ?? draft.note ?? "").trim();
+  draft.isPublic = formData.get("isPublic") === "on";
+  state.consultationSubmissionError = "";
+  state.consultationSubmitting = true;
+  updateConsultationSubmitStatus();
+  try {
+    const proposal = prepareConsultationSubmission(draft);
+    // 送信IDと最新の入力を送信前に保存。応答が失われても同じIDで再送する。
+    persistFormationConsultationLocal();
+    await apiRequest("formation_consultation_submit", { token, proposal });
+    clearFormationConsultationLocal(token);
+    if (consultationStillOpen(token) && state.consultationDraft === draft) {
+      state.consultationSubmitted = true;
+      state.consultationPicker = null;
+      renderFormationConsultationBody();
+      await refreshConsultationPublicAnswers({ manual: true });
+    }
+    return true;
+  } catch (error) {
+    if (consultationStillOpen(token)) {
+      state.consultationSubmissionError = `${error.message || "送信を確認できませんでした。"} 下書きは保持しています。通信エラーの場合は同じ内容で再送できます。`;
+      if (error.code === "CONSULTATION_REQUEST_CONFLICT") { delete draft.requestId; delete draft.requestSignature; }
+      if (error.code === "CONSULTATION_CLOSED" || error.code === "CONSULTATION_NOT_FOUND") state.sharedConsultation.isActive = false;
+      persistFormationConsultationLocal();
+      showToast("送信できませんでした。下書きは保持しています。", "error");
+    }
+    return false;
+  } finally {
+    state.consultationSubmitting = false;
+    updateConsultationSubmitStatus();
+  }
+}
+
 function renderFormationConsultationBody() {
   if (state.formationSupportMode) {
     renderFormationSupportDirectBody();
@@ -4873,11 +5080,20 @@ function renderFormationConsultationBody() {
   }
   const consultation = state.sharedConsultation;
   if (!consultation) return;
+  const answers = `<section id="consultation-public-answers" class="consultation-public-answers" aria-label="参考回答">${consultationPublicAnswersHtml()}</section>`;
+  if (consultation.isActive === false && !state.consultationSubmitted) {
+    app.innerHTML = pageHtml({
+      title: consultation.title || "編成相談", subtitle: "受付終了・参考回答",
+      content: `<div class="page-content consultation-public-page"><div class="notice info">この相談は受付を終了しています。公開された回答は参考として閲覧できます。</div>${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}${answers}</div>`,
+      showNav: false,
+    });
+    return;
+  }
   if (state.consultationSubmitted) {
     app.innerHTML = pageHtml({
       title: consultation.title || "編成相談",
       subtitle: "提案を送信しました",
-      content: `<div class="page-content consultation-public-page"><div class="card consultation-success"><div class="success-mark">✓</div><h2>提案を送信しました</h2><p>相談者のマイ編成は変更していません。相談者が内容を確認して「採用」した場合だけコピーされます。</p><button type="button" class="secondary-button" data-action="new-consultation-proposal">別の案を送る</button></div></div>`,
+      content: `<div class="page-content consultation-public-page"><div class="card consultation-success"><div class="success-mark">✓</div><h2>提案を送信しました</h2><p>${state.consultationDraft?.isPublic ? "この回答は相談URLから参考として閲覧できます。" : "この回答は相談者だけに表示されます。"}</p><p>相談者が「採用」するとマイ編成にコピーされます。</p>${consultation.isActive === false ? "" : `<button type="button" class="secondary-button" data-action="new-consultation-proposal">別の案を送る</button>`}</div>${answers}</div>`,
       showNav: false,
     });
     return;
@@ -4892,6 +5108,8 @@ function renderFormationConsultationBody() {
     content: `
       <div class="page-content consultation-public-page">
         ${consultation.note ? `<div class="card consultation-request"><strong>相談内容</strong><p>${escapeHtml(consultation.note)}</p></div>` : ""}
+        <div id="consultation-availability"></div>
+        <a id="consultation-answer-link" class="consultation-answer-link" href="#consultation-public-answers">参考回答を読む（${consultation.proposals?.length || 0}件）</a>
         <div class="notice info">この相談では、相談者の<strong>全所持武将・凸・全所持戦法</strong>を使って提案できます。上の所持武将一覧で、武将選択に出す武将を絞れます。戦法は各武将の第1・第2枠から割り当てます。PCでは戦法パレットからドラッグもできます。</div>
         <div class="consultation-autosave-note"><span>この端末に自動保存</span>${state.consultationLocalSavedAt ? `<small>最終保存 ${escapeHtml(formatDateTime(state.consultationLocalSavedAt))}</small>` : `<small>入力すると自動保存されます</small>`}</div>
         <div class="consultation-counts"><span>武将 <b>${inventory.generals.length}</b></span><span>戦法 <b>${inventory.tactics.length}</b></span>${inventory.lastImport?.importedAt ? `<span>所持更新 <b>${escapeHtml(formatDateTime(inventory.lastImport.importedAt))}</b></span>` : ""}</div>
@@ -4899,9 +5117,11 @@ function renderFormationConsultationBody() {
         <div class="section-heading" id="consultation-builder-start"><h2>武将を組む</h2><span>最大10部隊</span></div>
         <div class="consultation-mobile-builder-hint">武将を決めたら、第1・第2戦法の枠をタップして戦法を選択します。</div>
         <form class="form-stack" data-form="submit-formation-consultation-proposal">
+          <fieldset id="consultation-proposal-fields" class="form-stack consultation-submit-fields" ${state.consultationSubmitting ? "disabled" : ""}>
           <div class="card form-stack">
             <label class="field"><span>提案者名</span><input name="proposerName" maxlength="40" required data-consultation-path="proposerName" value="${escapeAttr(draft.proposerName)}" placeholder="ゲーム内名など" /></label>
             <label class="field"><span>提案全体のメモ（任意）</span><textarea name="note" maxlength="1000" rows="3" data-consultation-path="note" placeholder="狙い、運用順、注意点など">${escapeHtml(draft.note)}</textarea></label>
+            <label class="consultation-public-consent"><input type="checkbox" name="isPublic" data-consultation-path="isPublic" ${draft.isPublic === true ? "checked" : ""} /><span><strong>相談URLに参考回答として表示する</strong><small>このURLを開ける人に、提案者名・メモ・編成が表示されます。チェックを外すと相談者だけに送ります。相談者は後から公開範囲を変更できます。</small></span></label>
           </div>
           <div class="consultation-builder-layout">
             <div class="consultation-builder-teams">
@@ -4913,8 +5133,11 @@ function renderFormationConsultationBody() {
               ${consultationTacticPaletteHtml()}
             </div>
           </div>
-          <button type="submit" class="primary-button">この編成案を送信</button>
+          <div id="consultation-submit-error" class="notice danger" role="alert" ${state.consultationSubmissionError ? "" : "hidden"}>${escapeHtml(state.consultationSubmissionError)}</div>
+          <button type="submit" class="primary-button" ${state.consultationSubmitting ? "disabled" : ""}>${state.consultationSubmitting ? "送信中…" : "この編成案を送信"}</button>
+          </fieldset>
         </form>
+        ${answers}
       </div>
       ${consultationPickerHtml()}`,
     showNav: false,
@@ -4924,7 +5147,12 @@ function renderFormationConsultationBody() {
 }
 
 async function renderFormationConsultation() {
+  stopConsultationAnswersPolling();
   state.formationSupportMode = false;
+  state.consultationSubmitted = false;
+  state.consultationSubmissionError = "";
+  state.consultationAnswersError = "";
+  const token = state.consultationToken;
   state.consultationTacticPaletteSearch = "";
   state.consultationTacticPaletteKinds = [];
   state.consultationTacticPaletteGrades = ["S"];
@@ -4939,7 +5167,8 @@ async function renderFormationConsultation() {
   });
   try {
     if (!state.consultationToken) throw new Error("相談URLが不正です。");
-    const response = await apiRequest("shared_formation_consultation", { token: state.consultationToken });
+    const response = await apiRequest("shared_formation_consultation", { token });
+    if (!consultationStillOpen(token)) return;
     state.sharedConsultation = response.consultation;
     const saved = loadFormationConsultationLocal(state.consultationToken);
     initializeFormalConsultationCandidates(saved?.candidateGeneralIds);
@@ -4953,10 +5182,12 @@ async function renderFormationConsultation() {
       state.consultationGeneralPickerFilters = saved.generalFilters && typeof saved.generalFilters === "object" ? saved.generalFilters : state.consultationGeneralPickerFilters;
     }
     renderFormationConsultationBody();
+    startConsultationAnswersPolling();
   } catch (error) {
+    if (!consultationStillOpen(token)) return;
     app.innerHTML = pageHtml({
       title: "編成相談",
-      subtitle: "受付終了またはURLが無効です",
+      subtitle: "相談URLを開けませんでした",
       content: `<div class="page-content"><div class="notice danger">${escapeHtml(error.message)}</div></div>`,
       showNav: false,
     });
@@ -5548,7 +5779,7 @@ function assignConsultationPaletteTactic(source, target) {
   if (!targetEntry?.member?.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return false; }
   const teachable = source.sourceKind === "teachable";
   const tactic = teachable
-    ? consultationTeachableTactics().find((row) => normalizeSearchText(row.name) === normalizeSearchText(source.tacticName))
+    ? consultationTeachableTactics().find((row) => normalizeSearchText(consultationTacticBaseName(row.name)) === normalizeSearchText(consultationTacticBaseName(source.tacticName)))
     : (state.sharedConsultation?.inventory?.tactics ?? []).find((row)=>row.qookkaId === source.tacticId);
   if (!tactic) return false;
   const baseName = consultationTacticBaseName(tactic.name);
@@ -5607,6 +5838,7 @@ function moveConsultationAssignedTactic(source, target) {
 }
 
 function performFormationDndSwap(source, target) {
+  if (source?.context !== "my" && state.consultationSubmitting) return false;
   if (!formationDndCompatible(source, target)) return false;
   if (source.context === "my") {
     if (!state.formationDraft) return false;
@@ -5755,7 +5987,7 @@ document.addEventListener("input", (event) => {
   }
   const consultationPath = target.dataset?.consultationPath;
   if (consultationPath && state.consultationDraft) {
-    state.consultationDraft[consultationPath] = target.value;
+    state.consultationDraft[consultationPath] = target.type === "checkbox" ? target.checked : target.value;
     persistConsultationWorkspaceLocal();
     return;
   }
@@ -5905,6 +6137,11 @@ document.addEventListener("focusout", () => {
 
 document.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target?.dataset?.consultationPath && state.consultationDraft) {
+    state.consultationDraft[target.dataset.consultationPath] = target.type === "checkbox" ? target.checked : target.value;
+    persistConsultationWorkspaceLocal();
+    return;
+  }
   if (target?.dataset?.consultationCandidateId) {
     const id = String(target.dataset.consultationCandidateId || "");
     const general = state.sharedConsultation?.inventory?.generals?.find((row) => String(row.qookkaId || "") === id);
@@ -6065,21 +6302,7 @@ document.addEventListener("submit", async (event) => {
   }
 
   if (form.dataset.form === "submit-formation-consultation-proposal") {
-    if (!state.consultationDraft || !state.consultationToken) return;
-    state.consultationDraft.proposerName = String(formData.get("proposerName") ?? state.consultationDraft.proposerName ?? "").trim();
-    state.consultationDraft.note = String(formData.get("note") ?? state.consultationDraft.note ?? "").trim();
-    showLoading("編成案を送信中...");
-    try {
-      await apiRequest("formation_consultation_submit", { token: state.consultationToken, proposal: state.consultationDraft });
-      clearFormationConsultationLocal(state.consultationToken);
-      state.consultationSubmitted = true;
-      state.consultationPicker = null;
-      renderFormationConsultationBody();
-    } catch (error) {
-      showToast(error.message, "error");
-    } finally {
-      hideLoading();
-    }
+    await submitConsultationAnswer(formData);
     return;
   }
 
@@ -6230,6 +6453,8 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
+  if (state.consultationSubmitting && state.view === "formation-consultation"
+      && action.includes("consultation") && action !== "refresh-consultation-answers") return;
 
   if (action === "clear-enemy-search") {
     state.enemyPlayerSearch = "";
@@ -6665,13 +6890,40 @@ document.addEventListener("click", async (event) => {
     await navigate("formation-consultation-detail");
   }
   if (action === "revoke-formation-consultation") {
-    if (!window.confirm("この編成相談の受付を終了しますか？相談URLから新しい提案は送れなくなります。")) return;
+    if (!window.confirm("この編成相談の受付を終了しますか？公開済みの回答は同じURLで参考として閲覧できます。")) return;
     showLoading("相談受付を終了中...");
     try {
       await apiRequest("my_formation_consultation_revoke", { id: button.dataset.id });
       showToast("編成相談の受付を終了しました。", "success");
       state.activeConsultation = null;
       await navigate("formations");
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "refresh-consultation-answers") {
+    button.disabled = true;
+    try { await refreshConsultationPublicAnswers({ manual: true }); }
+    finally { button.disabled = false; }
+  }
+  if (action === "set-consultation-proposal-visibility") {
+    const isPublic = button.dataset.public === "true";
+    if (isPublic && !window.confirm("この回答の提案者名・コメント・編成を、相談URLの参考回答として公開しますか？")) return;
+    showLoading("回答の公開範囲を変更中...");
+    try {
+      await apiRequest("my_formation_consultation_proposal_visibility", { proposalId: button.dataset.id, isPublic });
+      showToast(isPublic ? "相談URLの参考回答に表示しました。" : "参考回答を非公開にしました。", "success");
+      await renderFormationConsultationDetail();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { hideLoading(); }
+  }
+  if (action === "set-consultation-url-visibility") {
+    const isShared = button.dataset.shared === "true";
+    if (!isShared && !window.confirm("この相談URLを非公開にしますか？回答の閲覧と新しい回答の受付が終了します。保存済みの回答は残ります。")) return;
+    showLoading("相談URLを変更中...");
+    try {
+      await apiRequest("my_formation_consultation_url_visibility", { id: button.dataset.id, isShared });
+      showToast(isShared ? "参考URLを発行しました。" : "相談URLを非公開にしました。", "success");
+      await renderFormationConsultationDetail();
     } catch (error) { showToast(error.message, "error"); }
     finally { hideLoading(); }
   }
@@ -6698,6 +6950,7 @@ document.addEventListener("click", async (event) => {
   if (action === "new-consultation-proposal") {
     clearFormationConsultationLocal(state.consultationToken);
     state.consultationSubmitted = false;
+    state.consultationSubmissionError = "";
     state.consultationDraft = newConsultationProposalDraft();
     state.consultationPicker = null;
     state.consultationSwap = null;
