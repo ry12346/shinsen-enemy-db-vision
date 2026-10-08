@@ -4871,6 +4871,9 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
     padding: 5px 9px;
     font-size: .66rem;
   }
+  .consultation-mobile-filter-row .tactic-effect-filter .tactic-kind-chip {
+    min-height: 40px;
+  }
 
   .consultation-mobile-tactic-list {
     min-height: 0;

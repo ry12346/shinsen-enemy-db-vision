@@ -1,6 +1,9 @@
-const APP_VERSION = "2.4.16";
+const APP_VERSION = "2.4.17";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
+// 提供された日本版ゲーム設定（2026-09-23）を元にした効果分類273件。真戦データ帳と同じ分類を使用。
+// 兵略は兵刃・計略の双方へまとめる。操作時の追加通信は不要。
+const TACTIC_EFFECT_CATALOG = Object.freeze([[[20001],["新生"],["強化","回復"]],[[20002],["風林火山"],["強化","兵刃","計略"]],[[20003],["三河魂"],["弱体化","援護"]],[[20004],["百万一心"],["制御","計略"]],[[20005],["千成瓢箪"],["回復"]],[[20006],["時は今"],["計略"]],[[20007],["相模の獅子"],["強化","回復"]],[[20008],["軍神"],["強化"]],[[20009],["海道一"],["兵刃","計略"]],[[20010],["表裏比興"],["制御","計略"]],[[20011],["鬼若子"],["強化"]],[[20013],["電光雷轟"],["制御","兵刃"]],[[20014],["鬼美濃"],["回復"]],[[20016],["かかれ柴田"],["兵刃"]],[[20017],["古今独歩"],["兵刃"]],[[20018],["啄木鳥"],["計略"]],[[20020],["十面埋伏"],["弱体化","計略"]],[[20022],["東国無双の麗"],["強化"]],[[20024],["天下御免"],["兵刃"]],[[20025],["夢幻泡影"],["回復"]],[[20030],["梟雄の計"],["計略"]],[[20031],["地黄八幡"],["兵刃"]],[[20033],["一切皆空"],["計略"]],[[20035],["越後二天"],["兵刃"]],[[20036],["疾風怒濤"],["強化"]],[[20037],["槍の又左"],["強化"]],[[20038],["斗星北天"],["制御"]],[[20039],["破竹の勢い"],["強化"]],[[20041],["無想掃討"],["兵刃"]],[[20042],["冷徹無情"],["兵刃"]],[[20043],["死灰復然"],["回復"]],[[20045],["一心一徳"],["回復"]],[[20046],["比翼連理"],["強化"]],[[20047],["越後流軍学"],["強化"]],[[20048],["掃疑平乱"],["強化"]],[[20049],["献身"],["強化"]],[[20050],["先制攻撃"],["弱体化","計略"]],[[20051],["耐苦鍛錬"],["強化"]],[[20052],["密報通暁"],["弱体化","計略"]],[[20053],["三楽犬"],["強化"]],[[20054],["鬼小島"],["兵刃"]],[[20055],["先手必勝"],["計略"]],[[20056],["不屈の精神"],["強化"]],[[20057],["剛の武者"],["兵刃"]],[[20058],["洞察反撃"],["強化"]],[[20059],["甲山猛虎"],["兵刃"]],[[20060],["夜叉美濃"],["強化"]],[[20061],["諏訪の光"],["強化"]],[[20062],["帰蝶の舞"],["制御","弱体化"]],[[20064],["陣前無我"],["制御"]],[[20065],["一徹の意志"],["制御"]],[[20066],["形影相弔"],["計略"]],[[20067],["湖水渡り"],["強化"]],[[20068],["攻めの三左"],["兵刃"]],[[20069],["内助の賢"],["強化"]],[[20070],["七本槍筆頭"],["強化"]],[[20071],["楼岸一番"],["兵刃","計略"]],[[20072],["笹の才蔵"],["兵刃"]],[[20074],["非常の器"],["回復"]],[[20075],["破陣乱舞"],["強化"]],[[20076],["仏の高力"],["強化"]],[[20077],["勇志不抜"],["強化"]],[[20078],["綱紀粛正"],["制御"]],[[20079],["落花啼鳥"],["強化"]],[[20080],["傲岸不遜"],["制御"]],[[20081],["尼御台"],["強化"]],[[20082],["満ちゆく月"],["兵刃"]],[[20083],["月華鶴影"],["兵刃"]],[[20084],["鬼十河"],["兵刃"]],[[20085],["信義貫徹"],["兵刃"]],[[20086],["旋乾転坤"],["計略"]],[[20087],["陣形崩し"],["兵刃"]],[[20088],["所向無敵"],["兵刃"]],[[20089],["気炎万丈"],["制御"]],[[20090],["草木皆兵"],["計略"]],[[20091],["縦横馳突"],["強化"]],[[20092],["前後挟撃"],["強化"]],[[20093],["回天転運"],["回復"]],[[20094],["千軍辟易"],["兵刃"]],[[20095],["按甲休兵"],["回復"]],[[20096],["一力当先"],["強化"]],[[20097],["乗勝追撃"],["兵刃"]],[[20099],["理非曲直"],["兵刃"]],[[20100],["戦意崩壊"],["強化"]],[[20101],["奇謀独断"],["制御"]],[[20102],["一行三昧"],["強化"]],[[20103],["沈魚落雁"],["制御"]],[[20104],["死中求活"],["強化"]],[[20105],["文武両道"],["強化"]],[[20106],["戦意消沈"],["制御"]],[[20107],["気勢衝天"],["弱体化"]],[[20108],["深慮遠謀"],["弱体化"]],[[20109],["帰還の凱歌"],["回復"]],[[20112],["血戦奮闘"],["強化"]],[[20113],["霹靂一撃"],["制御"]],[[20114],["以戦養戦"],["回復"]],[[20116],["百戦錬磨"],["強化"]],[[20117],["五里霧中"],["制御"]],[[20118],["罵詈雑言"],["制御"]],[[20119],["金鼓連天"],["強化"]],[[20120],["剛毅果断"],["強化"]],[[20121],["嚢沙之計"],["弱体化","計略"]],[[20122],["大智不智"],["弱体化","計略"]],[[20124],["赤備え隊"],["強化"]],[[20125],["母衣武者"],["強化"]],[[20126],["三河弓兵隊"],["強化"]],[[20127],["甲斐弓騎兵"],["強化"]],[[20128],["薩摩鉄砲兵"],["強化"]],[[20129],["鉄砲僧兵"],["強化"]],[[20130],["大太刀力士隊"],["強化"]],[[20131],["僧兵"],["強化"]],[[20132],["紅蓮の炎"],["計略"]],[[20133],["水攻干計"],["制御"]],[[20134],["盤石耽々"],["強化"]],[[20135],["御旗楯無"],["強化"]],[[20136],["毘沙門天"],["回復"]],[[20137],["運勝の鼻"],["強化"]],[[20138],["所領役帳"],["回復"]],[[20139],["独立独歩"],["強化"]],[[20140],["一領具足"],["強化"]],[[20141],["七十二の計"],["強化"]],[[20148],["怪力無双"],["兵刃"]],[[20149],["津田流砲術"],["計略"]],[[20150],["積水成淵"],["計略"]],[[20151],["水の如し"],["計略"]],[[20152],["武田之赤備"],["兵刃"]],[[20153],["豊後の戦神"],["強化"]],[[20154],["先陣鼓舞"],["兵刃"]],[[20155],["仁者の沈勇"],["計略"]],[[20156],["末世の道者"],["強化"]],[[20157],["諸行無常"],["強化"]],[[20158],["知者楽水"],["強化"]],[[20160],["乱世の華"],["兵刃","計略"]],[[20161],["静動自在"],["強化"]],[[20162],["境目奮戦"],["計略"]],[[20163],["瞬息万変"],["計略"]],[[20164],["弾嵐雨霰"],["兵刃"]],[[20165],["勇猛無比"],["兵刃"]],[[20166],["疾風迅雷"],["兵刃"]],[[20167],["松柏之操"],["強化"]],[[20168],["剛毅木訥"],["兵刃"]],[[20169],["一舟軒"],["回復"]],[[20170],["金城湯池"],["制御"]],[[20171],["樽俎折衝"],["制御"]],[[20172],["奇策縦横"],["計略"]],[[20173],["同気連枝"],["弱体化"]],[[20174],["風姿綽約"],["強化"]],[[20175],["攻其不備"],["兵刃","計略"]],[[20176],["電光石火"],["兵刃"]],[[20177],["恵風和雨"],["回復"]],[[20178],["伊達の粋"],["兵刃","計略"]],[[20179],["上州の黄斑"],["計略"]],[[20180],["鬼義重"],["兵刃"]],[[20181],["風流武者"],["回復"]],[[20182],["神出鬼没"],["兵刃"]],[[20183],["伝馬疾駆"],["強化"]],[[20184],["戮力同心"],["回復"]],[[20185],["威風凜々","威風凛々","威風凛凛","威風凜凜"],["兵刃"]],[[20186],["荷駄崩し"],["計略"]],[[20187],["追い崩し"],["計略"]],[[20188],["奇策制勝"],["強化"]],[[20189],["天神山残照"],["強化"]],[[20190],["竜騎兵","龍騎兵"],["強化"]],[[20191],["伊賀忍者"],["強化"]],[[20192],["越後先手組"],["強化"]],[[20193],["三河武士"],["強化"]],[[20194],["股肱之臣"],["強化"]],[[20195],["赤備え隊・拓"],["強化"]],[[20196],["甲斐弓騎兵・拓"],["強化"]],[[20197],["重農主義"],["強化"]],[[20198],["肥前の熊"],["兵刃"]],[[20199],["三州総大将"],["回復"]],[[20200],["懐刀の謀臣"],["制御"]],[[20201],["捨て身の采配"],["兵刃","計略"]],[[20202],["騙し討ち"],["兵刃","計略"]],[[20204],["百術千慮"],["計略"]],[[20205],["以逸待労"],["回復"]],[[20206],["三方挟撃"],["弱体化"]],[[20207],["堅忍不抜"],["強化"]],[[20208],["糧米召上"],["強化"]],[[20209],["種子島銃"],["強化"]],[[20213],["虚を衝く"],["兵刃"]],[[22001],["城盗り"],["計略"]],[[22002],["専横専断"],["強化"]],[[22003],["自立の志"],["制御"]],[[22004],["離心の計"],["兵刃"]],[[22005],["姻戚同盟"],["強化"]],[[22006],["雷神斬り"],["強化"]],[[22007],["機に乗ず"],["制御"]],[[22008],["破天の轟"],["計略"]],[[22009],["家中整序"],["計略"]],[[22010],["大器の萌芽"],["回復"]],[[22011],["会盟の陣"],["強化"]],[[22012],["直諫敢行"],["強化"]],[[22013],["疑心暗鬼"],["強化"]],[[22014],["南蛮渡来"],["回復"]],[[24001],["回山倒海"],["兵刃"]],[[24002],["槍弾正"],["兵刃"]],[[24003],["一念乱志"],["兵刃"]],[[24004],["警戒周到"],["強化"]],[[24005],["攻守兼備"],["兵刃","計略"]],[[24006],["殿軍奮戦"],["制御"]],[[24007],["鉄砲猛撃"],["計略"]],[[24008],["先制先登"],["兵刃"]],[[24009],["一上一下"],["強化"]],[[24010],["鬼玄蕃"],["兵刃"]],[[24011],["魚目混珠"],["回復"]],[[24012],["忠勤励行"],["強化"]],[[24013],["援護射撃"],["強化"]],[[24014],["捨て身の義"],["強化"]],[[24015],["一刀両断"],["兵刃"]],[[24016],["不意打ち"],["制御"]],[[24017],["全力戦闘"],["強化"]],[[24018],["懐柔"],["回復"]],[[24019],["荒切"],["強化"]],[[24020],["有備無患"],["回復"]],[[24021],["生死一顧"],["制御"]],[[24022],["一触即発"],["制御"]],[[24023],["弓調馬服"],["弱体化"]],[[24024],["先陣の勇"],["兵刃"]],[[24025],["矢石飛交"],["兵刃"]],[[24027],["融通自在"],["強化"]],[[24028],["秋水一色"],["強化"]],[[24030],["参謀の助言"],["強化"]],[[24031],["後方支援"],["強化"]],[[24033,24046],["槍の鈴"],["兵刃"]],[[24034],["妖怪退治"],["兵刃"]],[[24035],["闇討ち"],["兵刃"]],[[24036],["腹中鱗甲"],["兵刃"]],[[24037],["覇王の右筆"],["兵刃"]],[[24038],["敵陣攪乱"],["計略"]],[[24039],["驍勇善戦"],["兵刃"]],[[24040],["一六勝負"],["計略"]],[[24041],["岐阜侍従"],["兵刃","計略"]],[[24042],["鈴鳴り"],["兵刃"]],[[24043],["甲州流軍学"],["計略"]],[[24044],["奮戦"],["強化"]],[[24045],["百錬成鋼"],["強化"]],[[24047],["祓除"],["強化"]],[[24048],["奪気"],["強化"]],[[24049],["休養"],["回復"]],[[24050],["岡山口奮迅"],["強化"]],[[24051],["薫兜赴義"],["強化"]],[[24052],["五龍城忠弓"],["弱体化"]],[[24053],["犬山離弦"],["弱体化"]],[[24054],["梅雪縦横"],["弱体化"]],[[24262],["一鉄之守"],["強化"]],[[29606],["薙ぎ払い"],["兵刃"]],[[29607],["火攻め"],["計略"]],[[29608],["同討"],["兵刃"]],[[29610],["看破"],["弱体化"]],[[29612],["殿軍"],["強化"]],[[29613],["救援"],["回復"]],[[29618],["威圧"],["弱体化"]],[[29619],["刺突"],["兵刃"]],[[29620],["火計"],["計略"]],[[29621],["水計"],["計略"]],[[29624],["嘲罵"],["制御"]],[[29627],["反撃"],["強化"]],[[29629],["対話"],["強化"]],[[29630],["不退転"],["兵刃"]],[[29631],["連戦"],["兵刃"]],[[29632],["破甲"],["弱体化"]],[[29633],["猛撃"],["強化"]],[[29636],["奮起"],["強化"]],[[29645],["権変"],["制御"]],[[29646],["淡雅"],["強化"]],[[29701],["士気高揚"],["強化"]],[[29702],["初級鼓舞"],["強化"]],[[29703],["初期激昂"],["強化"]],[[29704],["初級圧制"],["制御"]],[[29705],["初級撹乱"],["制御"]],[[29706],["初級治療"],["回復"]]]);
 const FORMATION_TACTIC_COPY_LIMITS = Object.freeze({ "奮戦": 2 });
 const FORMATION_TACTIC_NAME_ALIASES = Object.freeze({
   "威風凛凛": "威風凜々",
@@ -88,6 +91,7 @@ const state = {
   formationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
   formationTacticPickerKinds: [],
   formationTacticPickerGrades: ["S"],
+  formationTacticPickerEffects: [],
   formationSwap: null,
   formationExpandedTacticSlots: [],
   formationDraftRemote: null,
@@ -114,9 +118,11 @@ const state = {
   consultationInventoryFilters: { star: "all", faction: "all", cost: "all" },
   consultationGeneralPickerFilters: { star: "5", faction: "all", cost: "all" },
   consultationTacticPickerKinds: [],
+  consultationTacticPickerEffects: [],
   consultationTacticPickerGrades: ["S"],
   consultationTacticPaletteSearch: "",
   consultationTacticPaletteKinds: [],
+  consultationTacticPaletteEffects: [],
   consultationTacticPaletteGrades: ["S"],
   consultationTacticPaletteSource: "owned",
   consultationHideUsedTactics: false,
@@ -137,19 +143,11 @@ const state = {
   supportCloudError: "",
 };
 
-let consultationAnswersTimer = null;
 let consultationAnswersRefreshPromise = null;
-let consultationAnswersNextAt = 0;
-let consultationAnswersIdleChecks = 0;
-let consultationAnswersFailures = 0;
 
 function consultationSaveDataEnabled() {
   const connection = navigator.connection;
   return connection?.saveData === true || ["slow-2g", "2g"].includes(connection?.effectiveType);
-}
-
-function consultationAnswersBaseDelay() {
-  return consultationSaveDataEnabled() ? 180_000 : 60_000;
 }
 
 const OCR_SHEET_VERSION = "field-sheet-v6-troop";
@@ -1497,7 +1495,6 @@ async function initialize() {
 }
 
 async function navigate(view) {
-  stopConsultationAnswersPolling();
   state.view = view;
   window.scrollTo({ top: 0, behavior: "auto" });
   if (view === "enemies") await renderEnemies();
@@ -3582,7 +3579,8 @@ function currentPickerOptions() {
         const kindOk = !kindFilters.length || kindFilters.includes(consultationTacticKindLabel(item.kind));
         const gradeLabel = tacticGradeLabel(item);
         const gradeOk = !gradeFilters.length || gradeFilters.includes(gradeLabel);
-        return matchesQuery && kindOk && gradeOk;
+        const effectFilters = picker.effectFilters ?? state.formationTacticPickerEffects ?? [];
+        return matchesQuery && kindOk && gradeOk && tacticMatchesEffectFilter(item, effectFilters);
       }
       if (selectedSet.has(item.qookkaId)) return true;
       const filters = picker.filters ?? state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" };
@@ -3669,8 +3667,10 @@ function formationPickerFiltersHtml() {
   const kinds = consultationTacticKindValues(state.myInventory?.tactics ?? []);
   const selectedKinds = picker.kindFilters ?? state.formationTacticPickerKinds ?? [];
   const selectedGrades = picker.gradeFilters ?? state.formationTacticPickerGrades ?? ["S"];
+  const selectedEffects = picker.effectFilters ?? state.formationTacticPickerEffects ?? [];
   return `<div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(selectedGrades, "toggle-formation-tactic-grade")}</div>
-    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-formation-tactic-kind", "戦法種別")}</div>`;
+    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-formation-tactic-kind", "戦法種別")}</div>
+    <div class="picker-filter-section"><small>効果</small>${tacticEffectFilterButtonsHtml(selectedEffects, "toggle-formation-tactic-effect")}</div>`;
 }
 
 function formationPickerHtml() {
@@ -3980,6 +3980,7 @@ function supportWorkspacePayload() {
       formations: (draft?.formations ?? []).map((formation) => ({ ...pick(formation, ["name", "note", "troopType", "troopLevel"]),
         members: (formation.members ?? []).map((member) => pick(member, ["slot", "generalQookkaId", "generalName", "tactic1QookkaId", "tactic1Name", "tactic2QookkaId", "tactic2Name", "dupeCount", "inherentTacticName"])) })) },
     paletteSearch: state.consultationTacticPaletteSearch || "", paletteKinds: state.consultationTacticPaletteKinds ?? [],
+    paletteEffects: state.consultationTacticPaletteEffects ?? [],
     paletteGrades: state.consultationTacticPaletteGrades ?? ["S"], paletteSource: state.consultationTacticPaletteSource || "owned",
     hideUsedTactics: state.consultationHideUsedTactics === true,
     generalFilters: state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" },
@@ -4000,6 +4001,8 @@ function supportWorkspacePayload() {
 function applySupportWorkspaceSettings(saved) {
   state.consultationTacticPaletteSearch = String(saved?.paletteSearch || "");
   state.consultationTacticPaletteKinds = Array.isArray(saved?.paletteKinds) ? saved.paletteKinds.slice(0, 1) : [];
+  state.consultationTacticPaletteEffects = Array.isArray(saved?.paletteEffects)
+    ? saved.paletteEffects.filter((effect) => TACTIC_EFFECT_FILTERS.includes(effect)).slice(0, 1) : [];
   state.consultationTacticPaletteGrades = Array.isArray(saved?.paletteGrades) ? saved.paletteGrades.slice(0, 1) : ["S"];
   state.consultationTacticPaletteSource = saved?.paletteSource === "teachable" ? "teachable" : "owned";
   state.consultationHideUsedTactics = saved?.hideUsedTactics === true;
@@ -4210,7 +4213,6 @@ window.addEventListener("pagehide", () => { void flushSupportCloudSave(); });
 window.addEventListener("online", () => {
   // 復帰後も版の照合は通常の保存・競合処理を通す。
   void flushSupportCloudSave();
-  consultationAnswersNextAt = Date.now();
 });
 
 async function retrySupportCloudSync() {
@@ -4554,6 +4556,50 @@ function consultationTacticKindValues(tactics) {
   return [...ordered, ...extra];
 }
 
+const TACTIC_EFFECT_FILTERS = Object.freeze(["回復", "兵刃", "計略", "強化", "弱体化", "制御", "援護", "未分類"]);
+const tacticEffectById = new Map();
+const tacticEffectByName = new Map();
+for (const [ids, names, effects] of TACTIC_EFFECT_CATALOG) {
+  for (const id of ids) tacticEffectById.set(String(id), effects);
+  for (const name of names) tacticEffectByName.set(consultationTacticBaseName(name), effects);
+}
+
+function tacticEffectTypes(tactic) {
+  const effects = tacticEffectById.get(String(tactic?.qookkaId || ""))
+    || tacticEffectByName.get(consultationTacticBaseName(tactic?.name || ""));
+  return effects?.length ? effects : ["未分類"];
+}
+
+function tacticMatchesEffectFilter(tactic, filters) {
+  return !(filters ?? []).length || filters.some((effect) => tacticEffectTypes(tactic).includes(effect));
+}
+
+function tacticEffectFilterButtonsHtml(selectedEffects, action) {
+  const selected = new Set(selectedEffects ?? []);
+  return `<div class="tactic-kind-filter tactic-effect-filter" role="group" aria-label="戦法の効果">
+    ${["all", ...TACTIC_EFFECT_FILTERS].map((effect) => {
+      const active = effect === "all" ? selected.size === 0 : selected.has(effect);
+      return `<button type="button" class="tactic-kind-chip ${active ? "selected" : ""}" data-action="${escapeAttr(action)}" data-effect="${escapeAttr(effect)}" aria-pressed="${active ? "true" : "false"}">${effect === "all" ? "すべて" : escapeHtml(effect)}</button>`;
+    }).join("")}
+  </div>`;
+}
+
+function refreshTacticEffectFilterButtons(action, selectedEffects) {
+  const selected = new Set(selectedEffects ?? []);
+  document.querySelectorAll(`[data-action="${action}"]`).forEach((button) => {
+    const effect = String(button.dataset.effect || "all");
+    const active = effect === "all" ? selected.size === 0 : selected.has(effect);
+    button.classList.toggle("selected", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function updateConsultationPaletteFilterSummary() {
+  const summary = document.getElementById("consultation-palette-filter-summary");
+  if (summary) summary.textContent = [(state.consultationTacticPaletteGrades ?? ["S"])[0] || "すべて",
+    (state.consultationTacticPaletteKinds ?? [])[0] || "すべて", (state.consultationTacticPaletteEffects ?? [])[0] || "すべて"].join(" / ");
+}
+
 function refreshTacticKindFilterButtons(action, selectedKinds) {
   const selected = new Set(selectedKinds ?? []);
   document.querySelectorAll(`[data-action="${action}"]`).forEach((button) => {
@@ -4764,8 +4810,10 @@ function consultationPickerOptions() {
           const matchesQuery = !normalizeSearchText(picker.query || "") || normalizeSearchText(item.name).includes(normalizeSearchText(picker.query || ""));
           const kindFilters = picker.kindFilters ?? state.consultationTacticPickerKinds ?? [];
           const gradeFilters = picker.gradeFilters ?? state.consultationTacticPickerGrades ?? ["S"];
+          const effectFilters = picker.effectFilters ?? state.consultationTacticPickerEffects ?? [];
           const gradeLabel = tacticGradeLabel(item);
-          return matchesQuery && (!kindFilters.length || kindFilters.includes(consultationTacticKindLabel(item.kind))) && (!gradeFilters.length || gradeFilters.includes(gradeLabel));
+          return matchesQuery && (!kindFilters.length || kindFilters.includes(consultationTacticKindLabel(item.kind)))
+            && (!gradeFilters.length || gradeFilters.includes(gradeLabel)) && tacticMatchesEffectFilter(item, effectFilters);
         })())
     .slice(0, 100);
 }
@@ -4810,8 +4858,10 @@ function consultationPickerFiltersHtml() {
   const kinds = consultationTacticKindValues(tactics);
   const selectedKinds = picker.kindFilters ?? state.consultationTacticPickerKinds ?? [];
   const selectedGrades = picker.gradeFilters ?? state.consultationTacticPickerGrades ?? ["S"];
+  const selectedEffects = picker.effectFilters ?? state.consultationTacticPickerEffects ?? [];
   return `<div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(selectedGrades, "toggle-consultation-tactic-grade")}</div>
-    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-consultation-tactic-kind", "戦法種別")}</div>`;
+    <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, selectedKinds, "toggle-consultation-tactic-kind", "戦法種別")}</div>
+    <div class="picker-filter-section"><small>効果</small>${tacticEffectFilterButtonsHtml(selectedEffects, "toggle-consultation-tactic-effect")}</div>`;
 }
 
 function consultationPickerSelectedSummaryHtml() {
@@ -5009,12 +5059,14 @@ function consultationTacticPaletteItems() {
   const query = normalizeSearchText(state.consultationTacticPaletteSearch || "");
   const gradeFilters = state.consultationTacticPaletteGrades ?? ["S"];
   const kindFilters = state.consultationTacticPaletteKinds ?? [];
+  const effectFilters = state.consultationTacticPaletteEffects ?? [];
   return tactics.filter((tactic) => {
     if (state.consultationHideUsedTactics && consultationTacticUsageCount(tactic.qookkaId || "", tactic.name || "") > 0) return false;
     const grade = tacticGradeLabel(tactic);
     const kind = consultationTacticKindLabel(tactic.kind);
     if (gradeFilters.length && !gradeFilters.includes(grade)) return false;
     if (kindFilters.length && !kindFilters.includes(kind)) return false;
+    if (!tacticMatchesEffectFilter(tactic, effectFilters)) return false;
     if (query) {
       const haystack = [tactic.name, ...(tactic.sourceGenerals ?? []).map((general) => general.name)].map((value) => normalizeSearchText(value || "")).join(" ");
       if (!haystack.includes(query)) return false;
@@ -5047,6 +5099,7 @@ function consultationTacticPaletteHtml() {
   const kinds = consultationTacticKindValues(tactics);
   const gradeLabel = (state.consultationTacticPaletteGrades ?? ["S"])[0] || "すべて";
   const kindLabel = (state.consultationTacticPaletteKinds ?? [])[0] || "すべて";
+  const effectLabel = (state.consultationTacticPaletteEffects ?? [])[0] || "すべて";
   const teachableMode = state.consultationTacticPaletteSource === "teachable";
   return `<aside class="card consultation-tactic-palette" id="consultation-tactic-palette">
     <div class="consultation-tactic-palette-head"><div><strong>戦法パレット</strong><small>${teachableMode ? "伝授戦法を武将へドラッグ" : "所持戦法を武将へドラッグ"}</small></div><span>${tactics.length}件</span></div>
@@ -5056,10 +5109,11 @@ function consultationTacticPaletteHtml() {
     </div>
     <div class="consultation-palette-search-row"><input id="consultation-tactic-palette-search" class="choice-search consultation-palette-search" type="search" placeholder="${teachableMode ? "伝授戦法・伝授元で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" autocomplete="off" />${consultationHideUsedTacticsCheckboxHtml()}</div>
     <details class="consultation-palette-filters">
-      <summary>絞り込み <span>${escapeHtml(gradeLabel)} / ${escapeHtml(kindLabel)}</span></summary>
+      <summary>絞り込み <span id="consultation-palette-filter-summary">${escapeHtml(gradeLabel)} / ${escapeHtml(kindLabel)} / ${escapeHtml(effectLabel)}</span></summary>
       <div class="consultation-palette-filter-body">
         <div class="picker-filter-section"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
         <div class="picker-filter-section"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
+        <div class="picker-filter-section"><small>効果</small>${tacticEffectFilterButtonsHtml(state.consultationTacticPaletteEffects ?? [], "toggle-consultation-palette-effect")}</div>
       </div>
     </details>
     <div id="consultation-tactic-palette-list" class="consultation-tactic-palette-list">${consultationTacticPaletteListHtml()}</div>
@@ -5132,6 +5186,7 @@ function consultationMobileTacticPickerHtml() {
         ${consultationHideUsedTacticsCheckboxHtml()}
         <div class="consultation-mobile-filter-row"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
         <div class="consultation-mobile-filter-row"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
+        <div class="consultation-mobile-filter-row"><small>効果</small>${tacticEffectFilterButtonsHtml(state.consultationTacticPaletteEffects ?? [], "toggle-consultation-palette-effect")}</div>
       </div>
       <div id="consultation-mobile-tactic-list" class="consultation-mobile-tactic-list">${consultationMobileTacticListHtml()}</div>
       <div class="consultation-mobile-tactic-footer">
@@ -5299,27 +5354,10 @@ function renderFormationSupportDirectBody() {
 function consultationPublicAnswersHtml() {
   const proposals = state.sharedConsultation?.proposals ?? [];
   return `<div class="section-heading"><h2>参考回答</h2><span>${proposals.length}件</span></div>
-    <div class="consultation-answer-toolbar"><p class="muted">回答者名をタップするとコメントと編成を読めます。通信量を抑えるため、自動確認の間隔は1～5分です。「更新」でいつでも確認できます。</p><button type="button" class="secondary-button compact-button" data-action="refresh-consultation-answers">更新</button></div>
+    <div class="consultation-answer-toolbar"><p class="muted">回答者名をタップするとコメントと編成を読めます。参考回答はページを開いたときに取得します。最新の回答は「更新」で確認できます。</p><button type="button" class="secondary-button compact-button" data-action="refresh-consultation-answers">更新</button></div>
     ${state.consultationAnswersError ? `<p class="notice warning" role="status">${escapeHtml(state.consultationAnswersError)}</p>` : ""}
     ${consultationComparisonHtml(proposals, { readOnly: true })}
     ${proposals.length ? proposals.map((proposal) => consultationProposalHtml(proposal, { readOnly: true, inventory: state.sharedConsultation?.inventory })).join("") : `<div class="card empty-state"><p class="muted">公開された回答はまだありません。相談者のみへの回答はここには表示されません。</p></div>`}`;
-}
-
-function stopConsultationAnswersPolling() {
-  if (consultationAnswersTimer != null) window.clearInterval(consultationAnswersTimer);
-  consultationAnswersTimer = null;
-}
-
-function startConsultationAnswersPolling() {
-  stopConsultationAnswersPolling();
-  consultationAnswersIdleChecks = 0;
-  consultationAnswersFailures = 0;
-  consultationAnswersNextAt = Date.now() + consultationAnswersBaseDelay();
-  consultationAnswersTimer = window.setInterval(() => {
-    if (!document.hidden && navigator.onLine !== false && Date.now() >= consultationAnswersNextAt) {
-      void refreshConsultationPublicAnswers({ automatic: true });
-    }
-  }, 30000);
 }
 
 function consultationStillOpen(token) {
@@ -5343,10 +5381,9 @@ function updateConsultationPublicAnswersPanel() {
   if (link) link.textContent = `参考回答を読む（${state.sharedConsultation?.proposals?.length || 0}件）`;
 }
 
-async function refreshConsultationPublicAnswers({ manual = false, automatic = false } = {}) {
+async function refreshConsultationPublicAnswers() {
   const token = state.consultationToken;
   if (!consultationStillOpen(token)) return;
-  if (automatic && (document.hidden || navigator.onLine === false)) return;
   if (consultationAnswersRefreshPromise?.token === token) return consultationAnswersRefreshPromise.promise;
   const refreshEntry = { token, promise: null };
   consultationAnswersRefreshPromise = refreshEntry;
@@ -5361,11 +5398,7 @@ async function refreshConsultationPublicAnswers({ manual = false, automatic = fa
       state.sharedConsultation.answersVersion = response.answersVersion || "";
       state.sharedConsultation.isActive = response.isActive;
       state.consultationAnswersError = "";
-      consultationAnswersFailures = 0;
-      consultationAnswersIdleChecks = !manual && !changed ? Math.min(consultationAnswersIdleChecks + 1, 3) : 0;
-      consultationAnswersNextAt = Date.now() + Math.min(300_000,
-        consultationAnswersBaseDelay() * 2 ** consultationAnswersIdleChecks);
-      if (changed || hadError || manual) updateConsultationPublicAnswersPanel();
+      if (changed || hadError) updateConsultationPublicAnswersPanel();
       if (response.isActive === false) {
         const availability = document.getElementById("consultation-availability");
         if (availability) availability.innerHTML = `<div class="notice info">この相談は受付終了です。参考回答を閲覧できます。編集中の下書きはこの端末に残っています。</div>`;
@@ -5374,14 +5407,10 @@ async function refreshConsultationPublicAnswers({ manual = false, automatic = fa
       }
     } catch (error) {
       if (!consultationStillOpen(token)) return;
-      consultationAnswersFailures = Math.min(consultationAnswersFailures + 1, 3);
-      consultationAnswersNextAt = Date.now() + Math.min(300_000,
-        consultationAnswersBaseDelay() * 2 ** consultationAnswersFailures);
       if (error.code === "CONSULTATION_NOT_FOUND") {
         state.sharedConsultation.isActive = false;
         state.sharedConsultation.proposals = [];
         state.consultationAnswersError = "この相談URLは非公開になりました。下書きはこの端末に残っています。";
-        stopConsultationAnswersPolling();
         const submit = document.querySelector('[data-form="submit-formation-consultation-proposal"] button[type="submit"]');
         if (submit) submit.disabled = true;
       } else {
@@ -5486,7 +5515,6 @@ async function submitConsultationAnswer(formData) {
       persistFormationConsultationLocal();
       if (context) await flushSupportCloudSave(context);
       renderFormationConsultationBody();
-      await refreshConsultationPublicAnswers({ manual: true });
     } else {
       // 送信待ちの間に別画面へ移っても、対象の相談だけを送信済みにする。
       const key = formationConsultationDraftStorageKey(token);
@@ -5588,7 +5616,6 @@ function renderFormationConsultationBody() {
 }
 
 async function renderFormationConsultation() {
-  stopConsultationAnswersPolling();
   state.formationSupportMode = false;
   state.consultationSubmitted = false;
   state.consultationSubmissionError = "";
@@ -5596,6 +5623,7 @@ async function renderFormationConsultation() {
   const token = state.consultationToken;
   state.consultationTacticPaletteSearch = "";
   state.consultationTacticPaletteKinds = [];
+  state.consultationTacticPaletteEffects = [];
   state.consultationTacticPaletteGrades = ["S"];
   state.consultationTacticPaletteSource = "owned";
   state.consultationExpandedTacticSlots = {};
@@ -5620,7 +5648,6 @@ async function renderFormationConsultation() {
     applySupportWorkspaceSettings(saved);
     if (saved) persistFormationConsultationLocal();
     renderFormationConsultationBody();
-    startConsultationAnswersPolling();
   } catch (error) {
     if (!consultationStillOpen(token)) return;
     app.innerHTML = pageHtml({
@@ -6705,6 +6732,7 @@ document.addEventListener("submit", async (event) => {
       state.consultationPicker = null;
       state.consultationTacticPaletteSearch = "";
       state.consultationTacticPaletteKinds = [];
+      state.consultationTacticPaletteEffects = [];
       state.consultationTacticPaletteGrades = ["S"];
       state.consultationTacticPaletteSource = "owned";
       state.consultationHideUsedTactics = false;
@@ -7027,6 +7055,7 @@ document.addEventListener("click", async (event) => {
     const grade = String(button.dataset.grade || "all");
     state.consultationTacticPaletteGrades = grade === "all" ? [] : [grade];
     refreshTacticGradeFilterButtons("toggle-consultation-palette-grade", state.consultationTacticPaletteGrades);
+    updateConsultationPaletteFilterSummary();
     refreshConsultationTacticPaletteList();
     collapseConsultationPaletteFilters();
     persistConsultationWorkspaceLocal();
@@ -7036,6 +7065,18 @@ document.addEventListener("click", async (event) => {
     const kind = String(button.dataset.kind || "all");
     state.consultationTacticPaletteKinds = kind === "all" ? [] : [kind];
     refreshTacticKindFilterButtons("toggle-consultation-palette-kind", state.consultationTacticPaletteKinds);
+    updateConsultationPaletteFilterSummary();
+    refreshConsultationTacticPaletteList();
+    collapseConsultationPaletteFilters();
+    persistConsultationWorkspaceLocal();
+    return;
+  }
+  if (action === "toggle-consultation-palette-effect") {
+    const effect = String(button.dataset.effect || "all");
+    if (effect !== "all" && !TACTIC_EFFECT_FILTERS.includes(effect)) return;
+    state.consultationTacticPaletteEffects = effect === "all" ? [] : [effect];
+    refreshTacticEffectFilterButtons("toggle-consultation-palette-effect", state.consultationTacticPaletteEffects);
+    updateConsultationPaletteFilterSummary();
     refreshConsultationTacticPaletteList();
     collapseConsultationPaletteFilters();
     persistConsultationWorkspaceLocal();
@@ -7154,6 +7195,20 @@ document.addEventListener("click", async (event) => {
     state.formationTacticPickerGrades = selected;
     refreshTacticGradeFilterButtons("toggle-formation-tactic-grade", selected);
     refreshFormationPickerOptions();
+    return;
+  }
+  if (action === "toggle-formation-tactic-effect" || action === "toggle-consultation-tactic-effect") {
+    const mine = action === "toggle-formation-tactic-effect";
+    const picker = mine ? state.formationPicker : state.consultationPicker;
+    if (picker?.kind !== "tactic") return;
+    const effect = String(button.dataset.effect || "all");
+    if (effect !== "all" && !TACTIC_EFFECT_FILTERS.includes(effect)) return;
+    const selected = effect === "all" ? [] : [effect];
+    picker.effectFilters = selected;
+    if (mine) state.formationTacticPickerEffects = selected;
+    else state.consultationTacticPickerEffects = selected;
+    refreshTacticEffectFilterButtons(action, selected);
+    if (mine) refreshFormationPickerOptions(); else refreshConsultationPickerOptions();
     return;
   }
   if (action === "toggle-consultation-tactic-grade") {
@@ -7366,7 +7421,7 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "refresh-consultation-answers") {
     button.disabled = true;
-    try { await refreshConsultationPublicAnswers({ manual: true }); }
+    try { await refreshConsultationPublicAnswers(); }
     finally { button.disabled = false; }
   }
   if (action === "set-consultation-proposal-visibility") {
@@ -7458,6 +7513,7 @@ document.addEventListener("click", async (event) => {
       filters: kind === "general" ? { ...(state.consultationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
       kindFilters: kind === "tactic" ? [...(state.consultationTacticPickerKinds ?? [])] : [],
       gradeFilters: kind === "tactic" ? [...(state.consultationTacticPickerGrades ?? ["S"])] : [],
+      effectFilters: kind === "tactic" ? [...(state.consultationTacticPickerEffects ?? [])] : [],
     };
     renderFormationConsultationBodyPreserveScroll();
   }
@@ -7648,6 +7704,7 @@ document.addEventListener("click", async (event) => {
       filters: kind === "general" ? { ...(state.formationGeneralPickerFilters ?? { star: "5", faction: "all", cost: "all" }) } : null,
       kindFilters: kind === "tactic" ? [...(state.formationTacticPickerKinds ?? [])] : [],
       gradeFilters: kind === "tactic" ? [...(state.formationTacticPickerGrades ?? ["S"])] : [],
+      effectFilters: kind === "tactic" ? [...(state.formationTacticPickerEffects ?? [])] : [],
     };
     renderFormationEditor();
   }
