@@ -4210,6 +4210,13 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
   font-size: .74rem;
 }
 .consultation-palette-tactic small { color: var(--muted); font-size: .6rem; }
+.consultation-palette-tactic .consultation-incident-materials,
+.consultation-mobile-tactic-option .consultation-incident-materials {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.consultation-incident-help { margin: 0; line-height: 1.45; }
 .consultation-palette-tactic.used { border-color: rgba(216,188,118,.17); }
 .consultation-palette-tactic.exhausted { opacity: .58; }
 .consultation-palette-used-mark {
