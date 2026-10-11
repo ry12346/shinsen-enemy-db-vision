@@ -2899,6 +2899,12 @@ textarea:focus {
   color: #c9b77e; font-size: .64rem; white-space: nowrap;
 }
 .choice-filter-stack { display: grid; gap: 8px; }
+.tactic-picker-tools,
+.tactic-picker-filter-panel { display: grid; gap: 8px; min-width: 0; }
+.tactic-picker-search-row { min-width: 0; }
+.tactic-picker-filter-toggle,
+.tactic-picker-filter-summary,
+.tactic-picker-filter-actions { display: none; }
 .picker-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 @media (max-width: 430px) {
   .inventory-filter-panel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -4840,15 +4846,6 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
     white-space: nowrap;
   }
 
-  .consultation-mobile-tactic-tools {
-    display: grid;
-    gap: 6px;
-    min-width: 0;
-  }
-  .consultation-mobile-tactic-tools .choice-search {
-    min-height: 38px;
-    font-size: .8rem;
-  }
   .consultation-mobile-filter-row {
     display: grid;
     grid-template-columns: auto minmax(0,1fr);
@@ -4950,6 +4947,138 @@ body.formation-dragging [data-dnd-drop-type] { transition: border-color .08s eas
   .consultation-mobile-tactic-footer .secondary-button {
     min-height: 42px;
   }
+}
+
+/* v2.4.19 スマホの戦法一覧を優先し、詳細条件は必要なときだけ開く */
+@media (max-width: 899px) {
+  .tactic-choice-sheet,
+  .consultation-mobile-tactic-sheet {
+    height: min(94dvh, 860px);
+    max-height: min(94dvh, 860px);
+    gap: 6px;
+    overflow: hidden;
+  }
+  .tactic-picker-tools { min-height: 0; gap: 4px; }
+  .tactic-picker-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 7px;
+  }
+  .tactic-picker-search-row .choice-search {
+    min-width: 0;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
+    font-size: 16px;
+  }
+  .tactic-picker-filter-toggle {
+    min-width: 96px;
+    min-height: 44px;
+    padding: 8px 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid rgba(213,224,240,.16);
+    border-radius: 11px;
+    background: rgba(213,224,240,.055);
+    color: var(--text);
+    font: inherit;
+    font-size: .75rem;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .tactic-picker-filter-toggle::after {
+    content: "";
+    width: 5px;
+    height: 5px;
+    margin-left: 2px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+  }
+  .tactic-picker-filter-toggle[aria-expanded="true"] {
+    border-color: rgba(216,188,118,.5);
+    background: rgba(216,188,118,.11);
+  }
+  .tactic-picker-filter-toggle[aria-expanded="true"]::after { transform: rotate(225deg); }
+  .tactic-picker-filter-toggle b {
+    min-width: 16px;
+    padding: 2px 4px;
+    border-radius: 5px;
+    background: rgba(216,188,118,.14);
+    color: #e0c780;
+    font-size: .64rem;
+  }
+  .tactic-picker-filter-summary {
+    display: block;
+    min-width: 0;
+    line-height: 18px;
+    color: #a6b3c4;
+    font-size: .67rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tactic-picker-filter-panel {
+    max-height: min(28dvh, 220px);
+    padding: 8px;
+    border: 1px solid rgba(213,224,240,.12);
+    border-radius: 11px;
+    background: #111923;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tactic-picker-filter-panel[data-tactic-filters-open="false"] { display: none; }
+  .tactic-picker-filter-panel .picker-filter-section,
+  .tactic-picker-filter-panel .consultation-mobile-filter-row {
+    display: grid;
+    grid-template-columns: 2.8em minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+  }
+  .tactic-picker-filter-panel .picker-filter-section > small,
+  .tactic-picker-filter-panel .consultation-mobile-filter-row > small {
+    padding-top: 14px;
+    font-size: .65rem;
+  }
+  .tactic-picker-filter-panel .tactic-kind-filter {
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 0;
+    overflow: visible;
+  }
+  .tactic-picker-filter-panel .tactic-kind-filter .tactic-kind-chip {
+    min-height: 44px;
+    padding: 8px 11px;
+    font-size: .7rem;
+  }
+  .tactic-picker-filter-panel .consultation-hide-used-check { min-height: 44px; }
+  .tactic-picker-filter-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .tactic-picker-filter-actions button { min-height: 44px; }
+  .tactic-picker-filter-toggle:focus-visible,
+  .tactic-picker-filter-actions button:focus-visible {
+    outline: 2px solid #d8bc76;
+    outline-offset: 2px;
+  }
+}
+
+@media (max-width: 899px) and (max-height: 520px) {
+  .tactic-choice-sheet,
+  .consultation-mobile-tactic-sheet {
+    height: 100dvh;
+    max-height: 100dvh;
+    gap: 4px;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+  }
+  .tactic-picker-filter-panel { max-height: 24dvh; }
 }
 
 @media (max-width: 380px) {

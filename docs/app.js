@@ -1,4 +1,4 @@
-const APP_VERSION = "2.4.18";
+const APP_VERSION = "2.4.19";
 const FORMATION_SUPPORT_STORAGE_KEY = "shinsen-formation-support-v1";
 const FORMATION_CONSULTATION_DRAFT_PREFIX = "shinsen-formation-consultation-draft-v1:";
 // 提供された日本版ゲーム設定（2026-09-23）を元にした効果分類273件。真戦データ帳と同じ分類を使用。
@@ -133,6 +133,7 @@ const state = {
   consultationSwap: null,
   consultationExpandedTacticSlots: {},
   consultationMobileTacticTarget: null,
+  consultationMobileTacticFiltersOpen: false,
   formationSupportMode: false,
   formationSupportName: "",
   formationSupportSavedAt: "",
@@ -3684,14 +3685,13 @@ function formationPickerHtml() {
   const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-formation-picker"></div>
-    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : "tactic-choice-sheet"}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle" aria-hidden="true"></div>
       <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-formation-picker">×</button></div>
       ${formationPickerSelectedSummaryHtml()}
-      <div class="choice-filter-stack">
-        <input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />
-        ${formationPickerFiltersHtml()}
-      </div>
+      ${picker.kind === "tactic" ? tacticPickerToolsHtml("formation",
+        `<input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="戦法名で検索" value="${escapeAttr(picker.query || "")}" />`, formationPickerFiltersHtml())
+        : `<div class="choice-filter-stack"><input id="formation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />${formationPickerFiltersHtml()}</div>`}
       <div id="formation-picker-list" class="choice-list">${formationPickerListHtml()}</div>
       <div class="multi-choice-footer"><button type="button" class="secondary-button" data-action="clear-formation-multi-choice">選択解除</button><button type="button" class="primary-button" data-action="confirm-formation-multi-choice">決定</button></div>
     </section>`;
@@ -3707,6 +3707,7 @@ function refreshFormationPickerOptions({ selectionOnly = false } = {}) {
     wrapper.innerHTML = formationPickerSelectedSummaryHtml();
     summary.replaceWith(wrapper.firstElementChild);
   }
+  refreshTacticPickerFilterSummary("formation");
 }
 
 function updatePickerSelectionDom(list, picker, action) {
@@ -4602,6 +4603,102 @@ function updateConsultationPaletteFilterSummary() {
   const summary = document.getElementById("consultation-palette-filter-summary");
   if (summary) summary.textContent = [(state.consultationTacticPaletteGrades ?? ["S"])[0] || "すべて",
     (state.consultationTacticPaletteKinds ?? [])[0] || "すべて", (state.consultationTacticPaletteEffects ?? [])[0] || "すべて"].join(" / ");
+  refreshTacticPickerFilterSummary("consultation-mobile");
+}
+
+function tacticPickerFilterSettings(context) {
+  if (context === "consultation-mobile") {
+    if (!state.consultationMobileTacticTarget) return null;
+    return { grades: state.consultationTacticPaletteGrades ?? ["S"], kinds: state.consultationTacticPaletteKinds ?? [],
+      effects: state.consultationTacticPaletteEffects ?? [], hideUsed: Boolean(state.consultationHideUsedTactics),
+      open: Boolean(state.consultationMobileTacticFiltersOpen) };
+  }
+  if (context !== "formation" && context !== "consultation") return null;
+  const mine = context === "formation";
+  const picker = mine ? state.formationPicker : state.consultationPicker;
+  if (picker?.kind !== "tactic") return null;
+  return { grades: picker.gradeFilters ?? (mine ? state.formationTacticPickerGrades : state.consultationTacticPickerGrades) ?? ["S"],
+    kinds: picker.kindFilters ?? (mine ? state.formationTacticPickerKinds : state.consultationTacticPickerKinds) ?? [],
+    effects: picker.effectFilters ?? (mine ? state.formationTacticPickerEffects : state.consultationTacticPickerEffects) ?? [],
+    hideUsed: false, open: Boolean(picker.filtersOpen) };
+}
+
+function tacticPickerFilterSummary(settings) {
+  const labels = [];
+  if (settings.grades.length) labels.push(`${settings.grades.join("・")}ランク`);
+  if (settings.kinds.length) labels.push(settings.kinds.join("・"));
+  if (settings.effects.length) labels.push(settings.effects.join("・"));
+  if (settings.hideUsed) labels.push("使用戦法を除外");
+  return { label: labels.join(" / ") || "絞り込みなし", count: labels.length };
+}
+
+function tacticPickerToolsHtml(context, searchHtml, filtersHtml) {
+  const settings = tacticPickerFilterSettings(context);
+  if (!settings) return "";
+  const summary = tacticPickerFilterSummary(settings);
+  const panelId = `tactic-picker-filters-${context}`;
+  return `<div class="tactic-picker-tools">
+    <div class="tactic-picker-search-row">${searchHtml}<button type="button" class="tactic-picker-filter-toggle" data-action="toggle-tactic-picker-filters" data-tactic-picker-context="${context}" aria-expanded="${settings.open}" aria-controls="${panelId}"><span>絞り込み</span><b data-tactic-picker-filter-count="${context}" ${summary.count ? "" : "hidden"}>${summary.count}</b></button></div>
+    <small class="tactic-picker-filter-summary" data-tactic-picker-filter-summary="${context}" title="${escapeAttr(summary.label)}" aria-live="polite">${escapeHtml(summary.label)}</small>
+    <div id="${panelId}" class="tactic-picker-filter-panel" data-tactic-filters-open="${settings.open}">
+      ${filtersHtml}
+      <div class="tactic-picker-filter-actions"><button type="button" class="text-button" data-action="reset-tactic-picker-filters" data-tactic-picker-context="${context}">条件を解除</button><button type="button" class="secondary-button compact-button" data-action="toggle-tactic-picker-filters" data-tactic-picker-context="${context}" aria-controls="${panelId}">一覧に戻る</button></div>
+    </div>
+  </div>`;
+}
+
+function refreshTacticPickerFilterSummary(context) {
+  const settings = tacticPickerFilterSettings(context);
+  if (!settings) return;
+  const summary = tacticPickerFilterSummary(settings);
+  document.querySelectorAll(`[data-tactic-picker-filter-summary="${context}"]`).forEach((element) => {
+    element.textContent = summary.label;
+    element.setAttribute("title", summary.label);
+  });
+  document.querySelectorAll(`[data-tactic-picker-filter-count="${context}"]`).forEach((element) => {
+    element.textContent = String(summary.count);
+    element.hidden = summary.count === 0;
+  });
+}
+
+function setTacticPickerFiltersOpen(context, open) {
+  if (!tacticPickerFilterSettings(context)) return;
+  if (context === "consultation-mobile") state.consultationMobileTacticFiltersOpen = Boolean(open);
+  else (context === "formation" ? state.formationPicker : state.consultationPicker).filtersOpen = Boolean(open);
+  const panel = document.getElementById(`tactic-picker-filters-${context}`);
+  const returnFocus = !open && panel?.contains?.(document.activeElement);
+  panel?.setAttribute("data-tactic-filters-open", String(Boolean(open)));
+  document.querySelectorAll(`.tactic-picker-filter-toggle[data-tactic-picker-context="${context}"]`).forEach((button) => {
+    button.setAttribute("aria-expanded", String(Boolean(open)));
+    if (returnFocus) button.focus();
+  });
+}
+
+function resetTacticPickerFilters(context) {
+  if (!tacticPickerFilterSettings(context)) return;
+  if (context === "consultation-mobile") {
+    state.consultationTacticPaletteGrades = [];
+    state.consultationTacticPaletteKinds = [];
+    state.consultationTacticPaletteEffects = [];
+    state.consultationHideUsedTactics = false;
+    document.querySelectorAll("[data-hide-used-consultation-tactics]").forEach((checkbox) => { checkbox.checked = false; });
+    refreshTacticGradeFilterButtons("toggle-consultation-palette-grade", []);
+    refreshTacticKindFilterButtons("toggle-consultation-palette-kind", []);
+    refreshTacticEffectFilterButtons("toggle-consultation-palette-effect", []);
+    updateConsultationPaletteFilterSummary();
+    refreshConsultationTacticPaletteList();
+    persistConsultationWorkspaceLocal();
+  } else {
+    const mine = context === "formation";
+    const picker = mine ? state.formationPicker : state.consultationPicker;
+    picker.gradeFilters = []; picker.kindFilters = []; picker.effectFilters = [];
+    if (mine) { state.formationTacticPickerGrades = []; state.formationTacticPickerKinds = []; state.formationTacticPickerEffects = []; }
+    else { state.consultationTacticPickerGrades = []; state.consultationTacticPickerKinds = []; state.consultationTacticPickerEffects = []; }
+    refreshTacticGradeFilterButtons(`toggle-${context}-tactic-grade`, []);
+    refreshTacticKindFilterButtons(`toggle-${context}-tactic-kind`, []);
+    refreshTacticEffectFilterButtons(`toggle-${context}-tactic-effect`, []);
+    if (mine) refreshFormationPickerOptions(); else refreshConsultationPickerOptions();
+  }
 }
 
 function refreshTacticKindFilterButtons(action, selectedKinds) {
@@ -4883,11 +4980,13 @@ function consultationPickerHtml() {
   const limit = picker.kind === "general" ? 3 : 2;
   return `
     <div class="choice-sheet-backdrop" data-action="close-consultation-picker"></div>
-    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : ""}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+    <section class="choice-sheet multi-choice-sheet ${picker.kind === "general" ? "general-choice-sheet" : "tactic-choice-sheet"}" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
       <div class="choice-sheet-handle"></div>
       <div class="choice-sheet-header"><div><strong>${escapeHtml(title)}</strong><small>最大${limit}つまで選択</small></div><button type="button" class="icon-button" data-action="close-consultation-picker">×</button></div>
       ${consultationPickerSelectedSummaryHtml()}
-      <div class="choice-filter-stack"><input id="consultation-picker-search" class="choice-search" type="search" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />${consultationPickerFiltersHtml()}</div>
+      ${picker.kind === "tactic" ? tacticPickerToolsHtml("consultation",
+        `<input id="consultation-picker-search" class="choice-search" type="search" autocomplete="off" placeholder="戦法名で検索" value="${escapeAttr(picker.query || "")}" />`, consultationPickerFiltersHtml())
+        : `<div class="choice-filter-stack"><input id="consultation-picker-search" class="choice-search" type="search" placeholder="名前を入力して絞り込み" value="${escapeAttr(picker.query || "")}" />${consultationPickerFiltersHtml()}</div>`}
       <div id="consultation-picker-list" class="choice-list">${consultationPickerListHtml()}</div>
       <div class="multi-choice-footer"><button type="button" class="secondary-button" data-action="clear-consultation-multi-choice">選択解除</button><button type="button" class="primary-button" data-action="confirm-consultation-multi-choice">決定</button></div>
     </section>`;
@@ -4903,6 +5002,7 @@ function refreshConsultationPickerOptions({ selectionOnly = false } = {}) {
     wrapper.innerHTML = consultationPickerSelectedSummaryHtml();
     summary.replaceWith(wrapper.firstElementChild);
   }
+  refreshTacticPickerFilterSummary("consultation");
 }
 
 function consultationSwapToolbarHtml(formationIndex) {
@@ -5252,14 +5352,13 @@ function consultationMobileTacticPickerHtml() {
         <button type="button" class="consultation-palette-source-tab ${!teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="owned" aria-pressed="${!teachableMode ? "true" : "false"}">所持戦法 <b>${ownedTactics.length}</b></button>
         <button type="button" class="consultation-palette-source-tab ${teachableMode ? "selected" : ""}" data-action="set-consultation-palette-source" data-source="teachable" aria-pressed="${teachableMode ? "true" : "false"}">伝授 <b>${teachableTactics.length}</b></button>
       </div>
-      <div class="consultation-mobile-tactic-tools">
-        <input id="consultation-mobile-tactic-search" class="choice-search" type="search" autocomplete="off" placeholder="${teachableMode ? "伝授・事件・素材で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" />
-        ${consultationHideUsedTacticsCheckboxHtml()}
+      ${tacticPickerToolsHtml("consultation-mobile",
+        `<input id="consultation-mobile-tactic-search" class="choice-search" type="search" autocomplete="off" placeholder="${teachableMode ? "伝授・事件・素材で検索" : "戦法名で検索"}" value="${escapeAttr(state.consultationTacticPaletteSearch || "")}" />`, `
         <div class="consultation-mobile-filter-row"><small>ランク</small>${tacticGradeFilterButtonsHtml(state.consultationTacticPaletteGrades ?? ["S"], "toggle-consultation-palette-grade")}</div>
         <div class="consultation-mobile-filter-row"><small>種別</small>${tacticKindFilterButtonsHtml(kinds, state.consultationTacticPaletteKinds ?? [], "toggle-consultation-palette-kind", "戦法種別")}</div>
         <div class="consultation-mobile-filter-row"><small>効果</small>${tacticEffectFilterButtonsHtml(state.consultationTacticPaletteEffects ?? [], "toggle-consultation-palette-effect")}</div>
-        ${teachableMode ? `<p class="muted compact-note consultation-incident-help">事件は所持武将から素材候補を判定します。心得の枚数・解放状況はゲーム内で確認してください。</p>` : ""}
-      </div>
+        ${consultationHideUsedTacticsCheckboxHtml()}
+        ${teachableMode ? `<p class="muted compact-note consultation-incident-help">事件は所持武将から素材候補を判定します。心得の枚数・解放状況はゲーム内で確認してください。</p>` : ""}`)}
         <div id="consultation-mobile-tactic-list" class="consultation-mobile-tactic-list">${consultationMobileTacticListHtml()}</div>
       <div class="consultation-mobile-tactic-footer">
         <button type="button" class="secondary-button" data-action="input-mobile-consultation-manual-tactic">未所持戦法を手入力</button>
@@ -5271,6 +5370,7 @@ function consultationMobileTacticPickerHtml() {
 function refreshConsultationMobileTacticPickerList() {
   const list = document.getElementById("consultation-mobile-tactic-list");
   if (list) list.innerHTML = consultationMobileTacticListHtml();
+  refreshTacticPickerFilterSummary("consultation-mobile");
 }
 
 function refreshConsultationMobileTacticPicker() {
@@ -7134,6 +7234,17 @@ document.addEventListener("click", async (event) => {
   }
   if (action === "formation-dnd-handle") return;
 
+  if (action === "toggle-tactic-picker-filters") {
+    const context = button.dataset.tacticPickerContext;
+    const settings = tacticPickerFilterSettings(context);
+    if (settings) setTacticPickerFiltersOpen(context, !settings.open);
+    return;
+  }
+  if (action === "reset-tactic-picker-filters") {
+    resetTacticPickerFilters(button.dataset.tacticPickerContext);
+    return;
+  }
+
   if (action === "set-consultation-palette-source") {
     state.consultationTacticPaletteSource = button.dataset.source === "teachable" ? "teachable" : "owned";
     state.consultationTacticPaletteSearch = "";
@@ -7186,6 +7297,7 @@ document.addEventListener("click", async (event) => {
     const entry = consultationMemberAt(target);
     if (!entry?.member?.generalQookkaId) { showToast("先に武将を選択してください。", "error"); return; }
     if (isConsultationMobileViewport()) {
+      state.consultationMobileTacticFiltersOpen = false;
       state.consultationMobileTacticTarget = target;
       mountConsultationMobileTacticPicker();
       return;
@@ -7203,6 +7315,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "close-mobile-consultation-tactic-picker") {
+    state.consultationMobileTacticFiltersOpen = false;
     state.consultationMobileTacticTarget = null;
     document.querySelector(".consultation-mobile-tactic-backdrop")?.remove();
     document.querySelector(".consultation-mobile-tactic-sheet")?.remove();
@@ -7221,6 +7334,7 @@ document.addEventListener("click", async (event) => {
     persistConsultationWorkspaceLocal();
     const entry = consultationMemberAt(target);
     if (target.field === "tactic1" && entry?.member?.generalQookkaId && !entry.member.tactic2Name) {
+      state.consultationMobileTacticFiltersOpen = false;
       state.consultationMobileTacticTarget = { ...target, field:"tactic2" };
       rerenderFormationConsultationPreserveScroll();
       showToast("第1戦法に設定しました。続けて第2戦法を選べます。", "success");
